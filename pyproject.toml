@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pitch-oracle-core"
+version = "1.0.0"
+description = "Shared league-agnostic core for Pitch Oracle soccer predictions."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Pitch Oracle" }]
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["pitch_oracle_core*", "models*"]
+
+[tool.setuptools]
+py-modules = [
+  "analyze_referee_impact", "analyze_team_form", "app_factory", "app_shell", "benchmark_hyperparameters",
+  "bzzoiro_football_api", "check_tomorrow_matches", "combine_raw_data",
+  "compare_model_features", "evaluate_poisson", "feature_importance_analysis",
+  "fetch_api_football", "fetch_clubelo", "fetch_player_data_fd",
+  "fetch_player_data", "fetch_understat_xg", "fetch_upcoming_features_espn",
+  "fetch_upcoming_fixtures", "fetch_weather_data", "footer",
+  "generate_pdf_report", "manager_data", "model_optimization", "optimize_model",
+  "precompute_database", "prepare_model_data", "scrape_injuries",
+  "scrape_injuries_web", "scrape_referees", "team_name_mapping",
+  "track_predictions", "train_models", "validate_models"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
