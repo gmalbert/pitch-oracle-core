@@ -71,7 +71,7 @@ jobs:
         run: |
           echo "Running basic tests..."
           # use module invocation to ensure pytest is available
-          python -m pytest test_poisson_evaluation.py
+          python -m pytest tests/test_poisson_evaluation.py
 
       - name: Run data pipeline
         timeout-minutes: 30  # 30 minutes for data processing (includes weather/injury API calls)
