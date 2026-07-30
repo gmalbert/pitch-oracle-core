@@ -1,0 +1,15 @@
+beautifulsoup4
+numpy
+pandas
+python-dotenv
+requests
+scikit-learn
+scipy
+xgboost
+torch
+pytest
+openmeteo-requests
+requests-cache
+retry-requests
+kloppy
+statsbombpy

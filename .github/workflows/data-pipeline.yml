@@ -81,7 +81,7 @@ jobs:
         run: |
           echo "Running basic tests..."
           # use module invocation to avoid PATH issues with installed pytest
-          python -m pytest test_poisson_evaluation.py
+          python -m pytest tests/test_poisson_evaluation.py
 
       - name: Run data pipeline
         timeout-minutes: 30  # 30 minutes for data processing (includes weather/injury API calls)
