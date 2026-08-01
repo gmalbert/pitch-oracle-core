@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pitch-oracle-core"
-version = "1.0.0"
+version = "1.1.0"
 description = "Shared league-agnostic core for Pitch Oracle soccer predictions."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,7 +27,7 @@ py-modules = [
   "fetch_player_data", "fetch_understat_xg", "fetch_upcoming_features_espn",
   "fetch_upcoming_fixtures", "fetch_weather_data", "footer",
   "generate_pdf_report", "manager_data", "model_optimization", "optimize_model",
-  "precompute_database", "prepare_model_data", "scrape_injuries",
+  "precompute_database", "build_cache_manifest", "prepare_model_data", "scrape_injuries",
   "scrape_injuries_web", "scrape_referees", "team_name_mapping",
   "track_predictions", "train_models", "validate_models"
 ]
