@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import os
+import builtins
 import pickle
 import warnings
 from os import path
@@ -19,9 +20,9 @@ warnings.filterwarnings('ignore', category=UserWarning, module='xgboost')
 from team_name_mapping import normalize_team_name
 from generate_pdf_report import generate_statistical_report, generate_quick_report
 from models.ensemble_predictor import create_ensemble_model, create_simple_ensemble
-from models.neural_predictor import train_neural_model, predict_neural
 from models.poisson_predictor import predict_match_poisson
 from models.poisson_evaluation import evaluate_poisson_file
+from pitch_oracle_core.cache import validate_cache
 from sklearn.calibration import CalibratedClassifierCV, calibration_curve
 from sklearn.model_selection import TimeSeriesSplit
 import plotly.graph_objects as go
@@ -93,12 +94,53 @@ def _get_bzzoiro_data(days_ahead: int = 14):
         return {}, {}
 
 
-from models.lstm_predictor import predict_match_lstm, LSTMPredictor, train_lstm_model
 from optimize_model import optimize_xgboost
 from footer import add_betting_oracle_footer
 
+
+def _safe_console_print(*args, **kwargs):
+    """Keep diagnostics from crashing when stdout uses Windows CP1252."""
+    try:
+        builtins.print(*args, **kwargs)
+    except UnicodeEncodeError:
+        encoding = getattr(getattr(__import__('sys'), 'stdout', None), 'encoding', None) or 'utf-8'
+        text = kwargs.get('sep', ' ').join(str(arg) for arg in args)
+        safe_text = text.encode(encoding, errors='replace').decode(encoding, errors='replace')
+        builtins.print(
+            safe_text,
+            end=kwargs.get('end', '\n'),
+            file=kwargs.get('file'),
+            flush=kwargs.get('flush', False),
+        )
+
+
+# Existing startup diagnostics remain useful, but must be safe on Windows.
+print = _safe_console_print
+
+
+def _load_neural_backend():
+    """Load the optional PyTorch neural backend only when requested."""
+    try:
+        from models.neural_predictor import train_neural_model, predict_neural
+        return train_neural_model, predict_neural, None
+    except Exception as exc:
+        return None, None, exc
+
+
+def _load_lstm_backend():
+    """Load the optional PyTorch LSTM backend only for LSTM predictions."""
+    try:
+        from models.lstm_predictor import LSTMPredictor, train_lstm_model
+        return LSTMPredictor, train_lstm_model, None
+    except Exception as exc:
+        return None, None, exc
+
 DATA_DIR = os.getenv('PITCH_ORACLE_DATA_DIR', 'data_files/')
 LEAGUE_NAME = os.getenv('PITCH_ORACLE_DISPLAY_NAME', 'Premier League')
+CACHE_ONLY = os.getenv('PITCH_ORACLE_CACHE_ONLY', '1').lower() in {'1', 'true', 'yes', 'on'}
+
+if CACHE_ONLY:
+    validate_cache()
 
 st.set_page_config(page_title=f"Pitch Oracle - {LEAGUE_NAME}", layout="wide", page_icon="⚽")
 
@@ -346,6 +388,11 @@ def load_precomputed_data():
             print(f"⚠️  Could not load precomputed data: {e}")
             print("Falling back to real-time processing...")
 
+    if CACHE_ONLY:
+        raise FileNotFoundError(
+            f"Required precomputed artifact is missing: {precomputed_path}. "
+            "Run the GitHub Actions precompute job before deploying."
+        )
     return None
 
 
@@ -391,19 +438,11 @@ def load_pretrained_models():
         else:
             raise FileNotFoundError("Ensemble model not found")
 
-        # Load Neural Network (if available)
+        # Do not import/load PyTorch during normal startup. Neural predictions
+        # are optional and are loaded only after the user requests them.
         neural_model = None
         neural_scaler = None
-        neural_path = path.join(models_dir, 'neural_model.pkl')
-        scaler_path = path.join(models_dir, 'neural_scaler.pkl')
-        if path.exists(neural_path) and path.exists(scaler_path):
-            with open(neural_path, 'rb') as f:
-                neural_model = pickle.load(f)
-            with open(scaler_path, 'rb') as f:
-                neural_scaler = pickle.load(f)
-            print("✅ Loaded pre-trained Neural Network")
-        else:
-            print("⚠️  Neural Network not available, will train on-demand")
+        print("Neural Network deferred until requested")
 
         # Load Optimized XGBoost (if available)
         optimized_xgb_model = None
@@ -432,6 +471,11 @@ def load_pretrained_models():
         }
 
     except Exception as e:
+        if CACHE_ONLY:
+            raise RuntimeError(
+                "Required pre-trained model artifacts could not be loaded. "
+                "Run the GitHub Actions training job before deploying."
+            ) from e
         print(f"⚠️  Could not load pre-trained models: {e}")
         print("Falling back to on-demand training...")
         return None
@@ -521,7 +565,13 @@ def load_and_process_data(csv_path):
         print("✅ Using precomputed data for instant loading")
         return X_train, X_test, y_train, y_test, feature_names, df
     
-    # Fallback: Process data in real-time (but cached after first run)
+    if CACHE_ONLY:
+        raise RuntimeError(
+            "Precomputed app data is unavailable. User sessions are cache-only; "
+            "run the GitHub Actions precompute job before deploying."
+        )
+
+    # Development fallback: process data in real-time (but cached after first run)
     print("Processing data in real-time (will be cached)...")
     df = pd.read_csv(csv_path, sep='\t')
     
@@ -602,6 +652,11 @@ if pretrained_models:
 
     # Validate feature shape compatibility before using pre-trained models
     if not is_feature_shape_compatible(xgb_model, X_test) or not is_feature_shape_compatible(ensemble_model, X_test):
+        if CACHE_ONLY:
+            raise RuntimeError(
+                "Pre-trained model/data feature shapes do not match. "
+                "Rebuild the artifacts through GitHub Actions."
+            )
         st.warning(
             f"Feature shape mismatch: model expects {getattr(xgb_model, 'n_features_in_', '?')} and data has {X_test.shape[1]}. "
             "Re-training models from scratch now."
@@ -628,6 +683,11 @@ if use_pretrained:
     print("✅ Successfully loaded pre-trained models!")
 
 else:
+    if CACHE_ONLY:
+        raise RuntimeError(
+            "Pre-trained models are missing. User sessions are cache-only; "
+            "run the GitHub Actions training job before deploying."
+        )
     # Fallback: Train models fresh (original behavior)
     print("Training models from scratch...")
 
@@ -853,6 +913,12 @@ with tab2:
                     disabled=st.session_state.neural_available):
             with st.spinner("Training neural network... This may take 30-60 seconds."):
                 try:
+                    train_neural_model, predict_neural, neural_error = _load_neural_backend()
+                    if neural_error is not None:
+                        raise RuntimeError(
+                            "The optional PyTorch neural backend is unavailable: "
+                            f"{neural_error}"
+                        )
                     neural_model, neural_scaler = train_neural_model(X_train, y_train, epochs=50, batch_size=32)
                     neural_pred_proba = predict_neural(neural_model, neural_scaler, X_test)
                     neural_pred = np.argmax(neural_pred_proba, axis=1)
@@ -969,7 +1035,10 @@ with tab2:
         else:
             st.info(f"🧠 **Neural Network Trained:** MAE reduced by {neural_mae_improvement:.3f}, Accuracy improved by {neural_acc_improvement:.3f} (Ensemble still better)")
     else:
-        st.warning("⚠️ Neural Network training failed - check PyTorch installation")
+        st.info(
+            "🧠 Neural Network is optional and will load only when you select "
+            "Train Neural Network. XGBoost and Ensemble predictions are ready."
+        )
 
     # --- Monte Carlo Permutation Importance ---
     st.subheader("Monte Carlo Feature Importance (Permutation)")
@@ -1428,7 +1497,16 @@ with tab3:
         st.warning(f"No upcoming fixtures file found at `{upcoming_csv}`. Please run fetch_upcoming_fixtures.py to get upcoming matches.")
         st.stop()
 
-    upcoming_df = pd.read_csv(upcoming_csv)
+    if CACHE_ONLY:
+        cached_predictions = path.join(DATA_DIR, 'upcoming_predictions.csv')
+        if not path.exists(cached_predictions):
+            raise FileNotFoundError(
+                f"Required upcoming prediction cache is missing: {cached_predictions}. "
+                "Run the GitHub Actions prediction-cache job before deploying."
+            )
+        upcoming_df = pd.read_csv(cached_predictions)
+    else:
+        upcoming_df = pd.read_csv(upcoming_csv)
     
     # Normalize team names to match historical data
     upcoming_df['HomeTeam'] = upcoming_df['HomeTeam'].apply(normalize_team_name)
@@ -1574,6 +1652,8 @@ with tab3:
     # Model Selection
     st.subheader("🤖 Choose Prediction Model")
     model_options = {
+        "Precomputed Ensemble": "Prediction generated by GitHub Actions before deployment",
+    } if CACHE_ONLY else {
         "Simple Ensemble": "Fast, reliable predictions using multiple ML algorithms",
         "Poisson Regression": "Goal-based predictions using statistical modeling of expected goals",
         "LSTM Time Series": "Deep learning model capturing team momentum and temporal patterns"
@@ -1592,7 +1672,16 @@ with tab3:
     # Since both X and X_upcoming are processed identically, they have the same features
     X_simple = X  # Use all features since they're aligned
 
-    if selected_model == "Simple Ensemble":
+    if CACHE_ONLY:
+        required_prediction_columns = {"HomeWin_Prob", "Draw_Prob", "AwayWin_Prob", "PredictedResult"}
+        missing_prediction_columns = required_prediction_columns.difference(upcoming_df.columns)
+        if missing_prediction_columns:
+            raise RuntimeError(
+                "Upcoming prediction cache is incomplete: "
+                + ", ".join(sorted(missing_prediction_columns))
+            )
+        st.success("✅ Predictions loaded from the GitHub Actions cache")
+    elif selected_model == "Simple Ensemble":
         # Train simple ensemble model
         simple_model = create_simple_ensemble()
         simple_model.fit(X_simple, y)
@@ -1678,6 +1767,14 @@ with tab3:
         historical_df = df.copy()  # Use the main historical dataframe
 
         LSTM_MODEL_PATH = 'models/lstm_predictor.pkl'
+
+        LSTMPredictor, train_lstm_model, lstm_error = _load_lstm_backend()
+        if lstm_error is not None:
+            st.error(
+                "The optional PyTorch LSTM backend is unavailable. "
+                f"Choose another model or install PyTorch: {lstm_error}"
+            )
+            st.stop()
 
         # Load pre-trained model if available, otherwise train once and save
         import os as _os

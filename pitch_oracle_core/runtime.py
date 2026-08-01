@@ -26,6 +26,9 @@ class Runtime:
             "PITCH_ORACLE_CLUBELO_CODE": self.league.clubelo_code or "",
             "PITCH_ORACLE_DATA_DIR": str(self.data_dir),
             "PITCH_ORACLE_MODELS_DIR": str(self.models_dir),
+            # Production consumers must receive data/models from CI artifacts.
+            # This prevents a user session from silently training or rebuilding.
+            "PITCH_ORACLE_CACHE_ONLY": "1",
         }
 
     def apply(self) -> "Runtime":
