@@ -3,7 +3,7 @@ numpy
 pandas
 python-dotenv
 requests
-scikit-learn
+scikit-learn>=1.8.0,<2
 streamlit>=1.51
 xgboost
 plotly

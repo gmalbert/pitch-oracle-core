@@ -31,7 +31,7 @@ app_shell.run(LEAGUE_CONFIG)
 ```
 
 **Why this matters vs. copy/paste:** a bug fix or model improvement in
-`pitch-oracle-core` gets fixed once, tagged as a new version (`v1.1.0`), and then
+`pitch-oracle-core` gets fixed once, tagged as a new version (`v1.2.0`), and then
 each league repo picks it up with a one-line `requirements.txt` bump — not a manual
 re-port into 5 drifted copies of the same file.
 

@@ -10,6 +10,7 @@ from .app_factory import run as run_app
 from .providers import ProviderRegistry, Stadium, calculate_shot_xg, require_source
 from .training import TrainingResult, evaluate, train
 from .xg import Shot, expected_goals_from_shots
+from .goal_markets import GoalMarketProbabilities, calculate_goal_markets
 
 __all__ = [
     "BUILTIN_LEAGUES", "DataSourceConfig", "LeagueConfig", "PhaseConfig",
@@ -18,5 +19,6 @@ __all__ = [
     "assign_phase", "eligible_opponents", "expected_goals_from_shots",
     "ProviderRegistry", "Stadium", "TrainingResult", "calculate_shot_xg",
     "current_runtime", "evaluate", "get_league_config", "normalize_odds",
-    "require_source", "run_app", "train",
+    "require_source", "run_app", "train", "GoalMarketProbabilities",
+    "calculate_goal_markets",
 ]

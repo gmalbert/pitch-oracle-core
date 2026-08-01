@@ -12,6 +12,7 @@ import pandas as pd
 import pickle
 import os
 from os import path
+from pitch_oracle_core.goal_markets import calculate_goal_markets
 
 
 class PoissonPredictor:
@@ -157,7 +158,8 @@ class PoissonPredictor:
                 'ExpectedHomeGoals': home_exp,
                 'ExpectedAwayGoals': away_exp,
                 'MostLikelyScore': most_likely_score,
-                'ScorelineProbabilities': scorelines
+                'ScorelineProbabilities': scorelines,
+                **calculate_goal_markets(home_exp, away_exp, max_goals=5).as_dict(),
             }
 
         except Exception as e:

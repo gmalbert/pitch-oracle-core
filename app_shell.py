@@ -739,7 +739,7 @@ acc = ensemble_acc
 model_trained = True
 
 # Create tabs for different sections
-tab1, tab_standings, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["Upcoming Matches", "Standings", "Predictive Data", "Upcoming Predictions", "Statistics", "Raw Data", "Team Deep Dive", "🔴 Live Scores"])
+tab1, tab_standings, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Upcoming Matches", "Standings", "Predictive Data", "Upcoming Predictions", "Statistics", "Raw Data", "Team Deep Dive"])
 
 with tab1:
     # ── Live Standings (loaded for fixture cards; displayed in Standings tab) ─
@@ -847,7 +847,6 @@ with tab1:
                          width=600, hide_index=True)
 
     add_betting_oracle_footer()
-
 with tab_standings:
     st.subheader("📊 Current Premier League Standings (2025-26)")
     _standings = compute_live_standings(csv_path)
@@ -1672,6 +1671,8 @@ with tab3:
     # Since both X and X_upcoming are processed identically, they have the same features
     X_simple = X  # Use all features since they're aligned
 
+    poisson_market_predictions = []
+
     if CACHE_ONLY:
         required_prediction_columns = {"HomeWin_Prob", "Draw_Prob", "AwayWin_Prob", "PredictedResult"}
         missing_prediction_columns = required_prediction_columns.difference(upcoming_df.columns)
@@ -1716,6 +1717,7 @@ with tab3:
             
             # Get Poisson predictions
             poisson_result = predict_match_poisson(home_team, away_team, team_stats_df)
+            poisson_market_predictions.append(poisson_result)
             
             home_win_probs.append(poisson_result['HomeWinProb'])
             draw_probs.append(poisson_result['DrawProb'])
@@ -1921,24 +1923,50 @@ with tab3:
         'Expected_Home_Goals': upcoming_df['HomeGoalsAve'].round(2),
         'Expected_Away_Goals': upcoming_df['AwayGoalsAve'].round(2)
     }
+    if poisson_market_predictions:
+        new_columns.update({
+            'Model_Expected_Home_Goals': [p.get('ExpectedHomeGoals') for p in poisson_market_predictions],
+            'Model_Expected_Away_Goals': [p.get('ExpectedAwayGoals') for p in poisson_market_predictions],
+            'Model_Expected_Total_Goals': [p.get('ExpectedTotalGoals') for p in poisson_market_predictions],
+            'Model_Over_2_5_Prob': [p.get('Over2_5Prob') for p in poisson_market_predictions],
+            'Model_Under_2_5_Prob': [p.get('Under2_5Prob') for p in poisson_market_predictions],
+            'Model_BTTS_Prob': [p.get('BTTSProb') for p in poisson_market_predictions],
+            'Model_Most_Likely_Score': [p.get('MostLikelyScore') for p in poisson_market_predictions],
+        })
     new_df = pd.DataFrame(new_columns, index=upcoming_df.index)
     upcoming_df = pd.concat([upcoming_df, new_df], axis=1)
 
     # Prepare display dataframe with human-readable columns and percentages
     display_cols = ['Date', 'Time', 'HomeTeam', 'AwayTeam', 'HomeWin_Prob', 'Draw_Prob', 'AwayWin_Prob',
                    'Expected_Home_Goals', 'Expected_Away_Goals', 'Risk_Score', 'Risk_Category', 'Confidence_Score', 'Betting_Recommendation']
+    if 'Model_Over_2_5_Prob' in upcoming_df.columns:
+        display_cols[9:9] = [
+            'Model_Expected_Total_Goals', 'Model_Over_2_5_Prob',
+            'Model_Under_2_5_Prob', 'Model_BTTS_Prob', 'Model_Most_Likely_Score',
+        ]
     if 'Referee' in upcoming_df.columns:
         display_cols.insert(4, 'Referee')
 
     display_df = upcoming_df[display_cols].copy()
+    display_labels = ['Home Win %', 'Draw %', 'Away Win %', 'Exp. Home Goals', 'Exp. Away Goals']
+    if 'Model_Over_2_5_Prob' in upcoming_df.columns:
+        display_labels += [
+            'Model Exp. Total Goals', 'Model Over 2.5 %', 'Model Under 2.5 %',
+            'Model BTTS %', 'Model Score',
+        ]
+    display_labels += ['Risk Score', 'Risk Level', 'Confidence %', 'Betting Tip']
     display_df.columns = ['Match Date', 'Kickoff Time', 'Home Team', 'Away Team'] + \
                         (['Referee'] if 'Referee' in upcoming_df.columns else []) + \
-                        ['Home Win %', 'Draw %', 'Away Win %', 'Exp. Home Goals', 'Exp. Away Goals', 'Risk Score', 'Risk Level', 'Confidence %', 'Betting Tip']
+                        display_labels
     display_df['Home Win %'] = (display_df['Home Win %'] * 100).round(2)
     display_df['Draw %'] = (display_df['Draw %'] * 100).round(2)
     display_df['Away Win %'] = (display_df['Away Win %'] * 100).round(2)
     display_df['Exp. Home Goals'] = display_df['Exp. Home Goals'].round(2)
     display_df['Exp. Away Goals'] = display_df['Exp. Away Goals'].round(2)
+    if 'Model Exp. Total Goals' in display_df.columns:
+        display_df['Model Exp. Total Goals'] = display_df['Model Exp. Total Goals'].round(2)
+        for _market_col in ('Model Over 2.5 %', 'Model Under 2.5 %', 'Model BTTS %'):
+            display_df[_market_col] = (display_df[_market_col] * 100).round(2)
     display_df['Confidence %'] = (display_df['Confidence %'] * 100).round(2)
     display_df['Risk Score'] = display_df['Risk Score'].round(2)
 
@@ -2853,42 +2881,3 @@ with tab6:
 
     add_betting_oracle_footer()
 
-# ── Tab 7: Live Scores ────────────────────────────────────────────────────────
-with tab7:
-    st.subheader("🔴 Live Premier League Scores")
-    st.caption("Powered by Bzzoiro Sports API · Reload the page to refresh scores")
-
-    try:
-        from bzzoiro_football_api import get_live_matches as _get_live
-        _live = _get_live()
-    except Exception as _e:
-        _live = []
-        st.error(f"Could not fetch live data: {_e}")
-
-    if not _live:
-        st.info(
-            "No Premier League matches are currently live. "
-            "Check back during match windows — fixtures typically kick off at "
-            "7:30 AM, 10:00 AM or 12:30 PM ET on weekends."
-        )
-    else:
-        st.write(f"**{len(_live)} match(es) in progress**")
-        for _m in _live:
-            _mh  = _m.get("home_team", "?")
-            _ma  = _m.get("away_team", "?")
-            _mhs = _m.get("home_score") if _m.get("home_score") is not None else "–"
-            _mas = _m.get("away_score") if _m.get("away_score") is not None else "–"
-            _min = _m.get("minute") or _m.get("time_elapsed") or ""
-            _sta = _m.get("status", "")
-            with st.container():
-                lc1, lc2, lc3 = st.columns([3, 2, 3])
-                with lc1:
-                    st.markdown(f"### 🏠 {_mh}")
-                with lc2:
-                    st.markdown(f"## {_mhs} – {_mas}")
-                    st.caption(f"{_min}' · {_sta}" if _min else _sta)
-                with lc3:
-                    st.markdown(f"### ✈️ {_ma}")
-                st.divider()
-
-    add_betting_oracle_footer()
