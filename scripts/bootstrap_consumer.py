@@ -16,6 +16,13 @@ from pitch_oracle_core import BUILTIN_LEAGUES  # noqa: E402
 
 TEMPLATE_ROOT = CORE_ROOT / "templates" / "consumer"
 TEXT_SUFFIXES = {"", ".md", ".py", ".txt", ".ini", ".yml", ".yaml"}
+REPOSITORY_SLUGS = {
+    "scotland": "scotland-soccer",
+    "eredivisie": "netherlands-soccer",
+    "portugal": "portugal-soccer",
+    "belgium": "belgium-soccer",
+    "turkey": "turkey-soccer",
+}
 
 
 def consumer_ready_leagues() -> tuple[str, ...]:
@@ -29,8 +36,16 @@ def consumer_ready_leagues() -> tuple[str, ...]:
     )
 
 
-def bootstrap_consumer(league_key: str, target: str | Path) -> Path:
-    """Copy and specialize the consumer template into a new directory."""
+def repository_slug_for(league_key: str) -> str:
+    """Return the required country-based repository name for a league."""
+    try:
+        return REPOSITORY_SLUGS[league_key.lower()]
+    except KeyError as exc:
+        raise ValueError(f"No country repository name configured for {league_key!r}") from exc
+
+
+def bootstrap_consumer(league_key: str, parent: str | Path = "..") -> Path:
+    """Create a country-named consumer directory below ``parent``."""
     key = league_key.lower()
     ready = consumer_ready_leagues()
     if key not in ready:
@@ -40,7 +55,7 @@ def bootstrap_consumer(league_key: str, target: str | Path) -> Path:
             "Add and test its baseline provider identifiers in pitch-oracle-core first."
         )
 
-    destination = Path(target).resolve()
+    destination = Path(parent).resolve() / repository_slug_for(key)
     if destination.exists():
         raise FileExistsError(
             f"Refusing to overwrite existing path: {destination}. "
@@ -69,9 +84,14 @@ def main() -> None:
         description="Create a turnkey Pitch Oracle consumer repository."
     )
     parser.add_argument("league_key", choices=consumer_ready_leagues())
-    parser.add_argument("target", help="New directory to create")
+    parser.add_argument(
+        "parent",
+        nargs="?",
+        default="..",
+        help="Parent directory for the generated country-soccer repository (default: ..)",
+    )
     args = parser.parse_args()
-    destination = bootstrap_consumer(args.league_key, args.target)
+    destination = bootstrap_consumer(args.league_key, args.parent)
     print(f"Created {args.league_key} consumer at {destination}")
     print("Next: follow README.md in the generated repository.")
 

@@ -56,11 +56,12 @@ created for a different league.
 Generate a repository from the maintained template:
 
 ```bash
-python scripts/bootstrap_consumer.py eredivisie ../eredivisie
+python scripts/bootstrap_consumer.py eredivisie ..
 ```
 
 The generator selects a consumer-ready built-in league, specializes the config and
-workflows, and refuses to overwrite an existing path. A league is consumer-ready
+workflows, creates a country-based repository name such as `netherlands-soccer`,
+and refuses to overwrite an existing path. A league is consumer-ready
 only when both baseline historical and fixture identifiers are configured. Keep the core tag identical in both
 requirements files and in the reusable workflow call. The template deliberately
 contains no EPL code or generated artifacts.
