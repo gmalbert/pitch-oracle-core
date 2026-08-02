@@ -14,7 +14,14 @@ import pandas as pd
 import streamlit as st
 
 from .config import LeagueConfig
-from .risk import calculate_prediction_risk, get_prediction_guidance, get_risk_category
+from .risk import (
+    HIGH_RISK_MAX,
+    LOW_RISK_MAX,
+    MODERATE_RISK_MAX,
+    calculate_prediction_risk,
+    get_prediction_guidance,
+    get_risk_category,
+)
 
 
 def _data_dir() -> str:
@@ -139,6 +146,58 @@ def _prediction_column_config() -> dict:
     }
 
 
+def _filter_predictions_by_risk(frame: pd.DataFrame, selection: str) -> pd.DataFrame:
+    """Return the selected risk band without changing the cached prediction data."""
+    if selection == "All matches" or "Risk_Score" not in frame:
+        return frame.copy()
+
+    risk = pd.to_numeric(frame["Risk_Score"], errors="coerce")
+    if selection == "Low risk":
+        return frame.loc[risk <= LOW_RISK_MAX].copy()
+    if selection == "Moderate risk":
+        return frame.loc[(risk > LOW_RISK_MAX) & (risk <= MODERATE_RISK_MAX)].copy()
+    if selection == "High risk":
+        return frame.loc[(risk > MODERATE_RISK_MAX) & (risk <= HIGH_RISK_MAX)].copy()
+    if selection == "Critical risk":
+        return frame.loc[risk > HIGH_RISK_MAX].copy()
+    return frame.copy()
+
+
+def _style_prediction_risk(row: pd.Series) -> list[str]:
+    """Shade every prediction row according to its ambiguity/risk score."""
+    risk = pd.to_numeric(pd.Series([row.get("Risk score")]), errors="coerce").iloc[0]
+    if pd.isna(risk):
+        return [""] * len(row)
+    if risk <= LOW_RISK_MAX:
+        style = "background-color: #d4edda; color: #155724"
+    elif risk <= MODERATE_RISK_MAX:
+        style = "background-color: #fff3cd; color: #856404"
+    elif risk <= HIGH_RISK_MAX:
+        style = "background-color: #ffe5b4; color: #7a4100"
+    else:
+        style = "background-color: #f8d7da; color: #721c24"
+    return [style] * len(row)
+
+
+def _prediction_commentary(row: pd.Series) -> str:
+    """Generate a compact, probability-grounded explanation for one fixture."""
+    probabilities = {
+        "Home win": float(row["HomeWin_Prob"]),
+        "Draw": float(row["Draw_Prob"]),
+        "Away win": float(row["AwayWin_Prob"]),
+    }
+    outcome, confidence = max(probabilities.items(), key=lambda item: item[1])
+    home, away = row.get("HomeTeam", "Home"), row.get("AwayTeam", "Away")
+    if outcome == "Home win":
+        pick = f"{home} to win"
+    elif outcome == "Away win":
+        pick = f"{away} to win"
+    else:
+        pick = "a draw"
+    risk_level = row.get("Risk_Category", "Unavailable")
+    return f"Model pick: **{pick}** ({confidence:.1%}). Risk level: **{risk_level}**."
+
+
 def _page_title(config: LeagueConfig, title: str, subtitle: str) -> None:
     st.title(title)
     st.caption(f"{config.display_name} · {subtitle}")
@@ -199,14 +258,66 @@ def render_predictions(config: LeagueConfig) -> None:
             | (predictions.get("AwayTeam") == selected_team)
         ]
     predictions = _prediction_assessment(predictions)
+    risk_filter = st.radio(
+        "Risk level",
+        ["All matches", "Low risk", "Moderate risk", "High risk", "Critical risk"],
+        horizontal=True,
+        help="Risk measures how close the three predicted outcomes are; it is not a measure of betting value.",
+    )
+    predictions = _filter_predictions_by_risk(predictions, risk_filter)
     display = _display_predictions(predictions)
+    st.caption("Green = more decisive; yellow/orange/red = progressively more ambiguous.")
+
+    metrics = st.columns(4)
+    risk_scores = pd.to_numeric(predictions.get("Risk_Score"), errors="coerce")
+    confidence_scores = pd.to_numeric(predictions.get("Confidence_Score"), errors="coerce")
+    recommendations = predictions.get("Recommendation", pd.Series(dtype=str)).fillna("")
+    metrics[0].metric("Matches shown", len(predictions))
+    metrics[1].metric("Low risk", int((risk_scores <= LOW_RISK_MAX).sum()))
+    metrics[2].metric("High confidence", int((confidence_scores >= 0.60).sum()))
+    metrics[3].metric("Actionable leans", int(recommendations.str.contains("Strong|Consider", regex=True).sum()))
+
+    with st.expander("Risk scoring methodology"):
+        st.markdown(
+            f"""- 🟢 **Low risk (0–{LOW_RISK_MAX:.0f})**: more decisive model prediction.
+            - 🟡 **Moderate risk ({LOW_RISK_MAX:.0f}–{MODERATE_RISK_MAX:.0f})**: usable lean with meaningful uncertainty.
+            - 🟠 **High risk ({MODERATE_RISK_MAX:.0f}–{HIGH_RISK_MAX:.0f})**: ambiguous outcome probabilities.
+            - 🔴 **Critical risk (>{HIGH_RISK_MAX:.0f})**: close to a three-way toss-up.
+
+            Risk combines the leading probability with its margin over the runner-up. It describes model ambiguity, not betting value."""
+        )
+
+    if display.empty:
+        st.info("No matches match the selected filters.")
+        return
+
+    styled_display = display.style.apply(_style_prediction_risk, axis=1)
     st.dataframe(
-        display,
+        styled_display,
         hide_index=True,
         height=_height(display),
         width="stretch",
         column_config=_prediction_column_config(),
     )
+    st.download_button(
+        "Download predictions as CSV",
+        data=display.to_csv(index=False).encode("utf-8"),
+        file_name=f"{config.key}_predictions_{datetime.now():%Y%m%d}.csv",
+        mime="text/csv",
+    )
+
+    st.subheader("Match commentary")
+    required_probabilities = {"HomeWin_Prob", "Draw_Prob", "AwayWin_Prob"}
+    if required_probabilities.issubset(predictions.columns):
+        for _, row in predictions.iterrows():
+            home, away = row.get("HomeTeam", "Home"), row.get("AwayTeam", "Away")
+            date, kickoff = row.get("Date", ""), row.get("Time", "")
+            with st.expander(f"{home} vs {away} — {date} {kickoff}"):
+                st.markdown(_prediction_commentary(row))
+                probabilities = st.columns(3)
+                probabilities[0].metric("Home win", f"{float(row['HomeWin_Prob']):.1%}")
+                probabilities[1].metric("Draw", f"{float(row['Draw_Prob']):.1%}")
+                probabilities[2].metric("Away win", f"{float(row['AwayWin_Prob']):.1%}")
 
 
 def _standings(frame: pd.DataFrame) -> pd.DataFrame:
