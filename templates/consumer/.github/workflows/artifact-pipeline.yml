@@ -1,12 +1,19 @@
-name: League artifact pipeline
+name: Eredivisie artifact pipeline
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 7 * * *"
+    - cron: "20 7 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: eredivisie-artifact-pipeline
+  cancel-in-progress: false
 
 jobs:
-  build:
+  build-and-validate:
     uses: gmalbert/pitch-oracle-core/.github/workflows/precompute-consumer.yml@v1.3.1
     with:
       core_ref: v1.3.1
@@ -17,4 +24,3 @@ jobs:
         python -m prepare_model_data
       training_command: python -m train_models
       prediction_command: python scripts/precompute_predictions.py
-    secrets: inherit

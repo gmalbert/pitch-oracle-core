@@ -53,9 +53,17 @@ created for a different league.
 
 ## Starting a league consumer
 
-Copy `templates/consumer`, select a built-in league in `config.py`, and keep the
-core tag identical in `requirements.txt` and the reusable workflow call. The
-template deliberately contains no EPL code or generated artifacts.
+Generate a repository from the maintained template:
+
+```bash
+python scripts/bootstrap_consumer.py eredivisie ../eredivisie
+```
+
+The generator selects a consumer-ready built-in league, specializes the config and
+workflows, and refuses to overwrite an existing path. A league is consumer-ready
+only when both baseline historical and fixture identifiers are configured. Keep the core tag identical in both
+requirements files and in the reusable workflow call. The template deliberately
+contains no EPL code or generated artifacts.
 
 The reusable workflow requires `league_key`, `core_ref`, data preparation,
 training, and prediction commands. It installs the pinned core, runs `pip check`,
@@ -64,3 +72,8 @@ the generated artifacts once.
 
 See [the 1.3 consumer migration guide](docs/consumer-migration-1.3.md) before
 upgrading an existing league repository.
+
+For a new repository, follow the complete
+[new consumer repository runbook](docs/new-consumer-repository.md). It includes
+the recommended pilot, source scope, GitHub settings, first production build,
+browser validation, acceptance gates, and upgrade policy.
