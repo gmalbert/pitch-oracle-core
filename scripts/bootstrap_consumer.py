@@ -93,7 +93,11 @@ def main() -> None:
     args = parser.parse_args()
     destination = bootstrap_consumer(args.league_key, args.parent)
     print(f"Created {args.league_key} consumer at {destination}")
-    print("Next: follow README.md in the generated repository.")
+    print("Required next steps:")
+    print(f"  1. cd {destination}")
+    print("  2. Create a virtual environment and install requirements-ci.txt")
+    print("  3. Run: python scripts/bootstrap_local.py")
+    print("  4. Run: python -m pytest -q and browser-test the Predictions page")
 
 
 if __name__ == "__main__":

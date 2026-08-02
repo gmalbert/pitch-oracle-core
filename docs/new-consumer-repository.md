@@ -93,7 +93,27 @@ On Windows PowerShell, replace `./venv/bin/python` with
 The initial tests validate configuration and pin synchronization. Artifact tests
 skip until the first coherent artifact set exists.
 
-## 4. Run the first artifact build
+## 4. Run the required turnkey bootstrap
+
+Before exposing a new consumer or relying on its scheduled workflow, run the
+same full build locally from the committed repository:
+
+```bash
+python scripts/bootstrap_local.py
+```
+
+This command sets `PITCH_ORACLE_LEAGUE` from the consumer configuration and
+runs historical download, fixture fetch, feature preparation, training,
+database precomputation, prediction generation, manifest creation, and strict
+verification in the required order. Do not manually omit or reorder stages.
+
+On Windows, use the virtual environment interpreter explicitly:
+
+```powershell
+venv\Scripts\python scripts\bootstrap_local.py
+```
+
+## 5. Run the first scheduled artifact build
 
 Push the scaffold, open **Actions → Eredivisie artifact pipeline**, and run it
 manually. The reusable workflow performs, in order:
@@ -110,14 +130,15 @@ manually. The reusable workflow performs, in order:
 Never commit a partial manual rebuild. `data_files/`, `models/`, and
 `precomputed/` must advance together under the same core version.
 
-## 5. Acceptance gate
+## 6. Acceptance gate
 
 The consumer is ready to expose when all of these are true:
 
 - CI is green on the initial commit;
 - the manual artifact workflow is green on real upstream data;
-- `precomputed/cache_manifest.json` records `core_version: 1.3.1` and
-  `league: eredivisie`;
+- `precomputed/cache_manifest.json` records the pinned core version and the
+  configured league;
+- `python scripts/bootstrap_local.py` succeeds from a clean consumer checkout;
 - `python scripts/verify_consumer.py` succeeds;
 - the app opens all seven navigation pages without a Streamlit exception;
 - Playwright click-navigation reports no browser console errors;
@@ -126,7 +147,7 @@ The consumer is ready to expose when all of these are true:
 - chronological accuracy and log loss are plausible and recorded, without being
   compared to the old EPL random-split metrics.
 
-## 6. Optional-source promotion rule
+## 7. Optional-source promotion rule
 
 Promote one optional source at a time on a pull request. For each source, document
 coverage, add aliases/configuration, add a failure-mode test, rebuild everything,
@@ -141,7 +162,7 @@ For the Eredivisie, investigate optional sources in this order:
 4. referee and injury coverage;
 5. live odds.
 
-## 7. Core upgrades
+## 8. Core upgrades
 
 Upgrade only to an immutable core release. Change the tag in
 `requirements.txt`, `requirements-ci.txt`, the caller workflow's `uses` line,
