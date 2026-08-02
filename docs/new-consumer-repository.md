@@ -7,7 +7,9 @@ resulting artifact layout and application behavior.
 
 ## Recommended first consumer: Eredivisie
 
-Use repository name `eredivisie` and league key `eredivisie`.
+Use repository name `netherlands-soccer` and league key `eredivisie`. Repository
+names follow the stable `<country>-soccer` convention; competition names remain in
+the league configuration because they can change independently of the country.
 
 It is the lowest-risk pilot among the five planned leagues because it has a normal
 18-team double round-robin regular season, registered football-data (`N1`), ESPN
@@ -42,15 +44,17 @@ pins an immutable release):
 
 ```bash
 git pull --ff-only origin main
-python scripts/bootstrap_consumer.py eredivisie ../eredivisie
-cd ../eredivisie
+python scripts/bootstrap_consumer.py eredivisie ..
+cd ../netherlands-soccer
 git init
 git add .
 git commit -m "feat: bootstrap Eredivisie consumer"
-gh repo create gmalbert/eredivisie --public --source=. --remote=origin --push
+gh repo create gmalbert/netherlands-soccer --public --source=. --remote=origin --push
 ```
 
-The bootstrap command refuses to overwrite an existing path. It creates:
+The optional final argument is the parent directory, not the repository name. The
+generator owns the country-based name and refuses to overwrite an existing path.
+It creates:
 
 - the league configuration and Streamlit entrypoint;
 - immutable runtime and CI dependency pins;

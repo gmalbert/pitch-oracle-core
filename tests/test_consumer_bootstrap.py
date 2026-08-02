@@ -6,8 +6,8 @@ from scripts.bootstrap_consumer import bootstrap_consumer
 
 
 def test_bootstrap_creates_specialized_turnkey_consumer(tmp_path: Path):
-    target = tmp_path / "scottish-premiership"
-    result = bootstrap_consumer("scotland", target)
+    target = tmp_path / "scotland-soccer"
+    result = bootstrap_consumer("scotland", tmp_path)
 
     assert result == target.resolve()
     assert 'get_league_config("scotland")' in (target / "config.py").read_text()
@@ -20,13 +20,13 @@ def test_bootstrap_creates_specialized_turnkey_consumer(tmp_path: Path):
 
 
 def test_bootstrap_refuses_to_overwrite_existing_path(tmp_path: Path):
-    target = tmp_path / "existing"
+    target = tmp_path / "netherlands-soccer"
     target.mkdir()
 
     with pytest.raises(FileExistsError, match="Refusing to overwrite"):
-        bootstrap_consumer("eredivisie", target)
+        bootstrap_consumer("eredivisie", tmp_path)
 
 
 def test_bootstrap_rejects_league_without_baseline_fixture_provider(tmp_path: Path):
     with pytest.raises(ValueError, match="not consumer-ready"):
-        bootstrap_consumer("portugal", tmp_path / "portugal")
+        bootstrap_consumer("portugal", tmp_path)
