@@ -14,6 +14,9 @@ def test_bootstrap_creates_specialized_turnkey_consumer(tmp_path: Path):
     workflow = (target / ".github" / "workflows" / "artifact-pipeline.yml").read_text()
     assert "league_key: scotland" in workflow
     assert "Scottish Premiership artifact pipeline" in workflow
+    entrypoint = (target / "predictions.py").read_text()
+    assert "The shared Pitch Oracle package is not installed" in entrypoint
+    assert "python -m pip install -r requirements.txt" in entrypoint
     assert (target / "scripts" / "verify_consumer.py").is_file()
     assert (target / "precomputed" / ".gitkeep").is_file()
     assert not tuple(target.rglob("__pycache__"))

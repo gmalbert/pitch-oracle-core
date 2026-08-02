@@ -11,6 +11,18 @@ Use Python 3.12 or newer:
 Local verification:
 
 ```bash
+python -m venv venv
+venv\\Scripts\\python -m pip install -r requirements.txt
+venv\\Scripts\\python -m compileall -q .
+venv\\Scripts\\python -m pytest -q
+venv\\Scripts\\streamlit run predictions.py
+```
+
+On macOS or Linux, activate the virtual environment first and use its Python:
+
+```bash
+python -m venv venv
+source venv/bin/activate
 python -m pip install -r requirements.txt
 python -m compileall -q .
 python -m pytest -q
