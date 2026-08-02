@@ -1,5 +1,5 @@
 ﻿"""
-scripts/export_best_bets.py — EPL (premier-league)
+scripts/export_best_bets.py - EPL (premier-league)
 Reads data_files/predictions_log.csv + data_files/raw/odds.csv (if available),
 computes edge, and writes data_files/best_bets_today.json.
 """
@@ -15,7 +15,8 @@ SEASON = str(date.today().year)
 OUT_PATH = Path("data_files/best_bets_today.json")
 PREDS_PATH = Path("data_files/predictions_log.csv")
 ODDS_PATH  = Path("data_files/raw/odds.csv")
-EV_THRESHOLD = 0.03  # minimum edge to export
+MIN_PROBABILITY_EDGE = 0.03
+MIN_EXPECTED_VALUE = 0.03
 
 
 def _write(bets: list, notes: str = "") -> None:
@@ -35,14 +36,23 @@ def _write(bets: list, notes: str = "") -> None:
     print(f"[{SPORT}] Wrote {len(bets)} bets -> {OUT_PATH}")
 
 
-def _tier_from_edge(edge: float) -> str:
-    if edge >= 0.08:
+def _tier_from_expected_value(expected_value: float) -> str:
+    if expected_value >= 0.12:
         return "Elite"
-    elif edge >= 0.04:
+    elif expected_value >= 0.07:
         return "Strong"
-    elif edge >= EV_THRESHOLD:
+    elif expected_value >= MIN_EXPECTED_VALUE:
         return "Good"
     return "Standard"
+
+
+def _market_metrics(model_probability: float, decimal_odds: float, all_decimal_odds: list[float]) -> tuple[float, float, float]:
+    """Return no-vig market probability, probability edge, and expected return."""
+    implied = [1.0 / price for price in all_decimal_odds]
+    market_probability = (1.0 / decimal_odds) / sum(implied)
+    probability_edge = model_probability - market_probability
+    expected_value = model_probability * decimal_odds - 1.0
+    return market_probability, probability_edge, expected_value
 
 
 def _decimal_to_american(dec) -> int | None:
@@ -59,7 +69,7 @@ def main() -> None:
     today = date.today()
 
     if not PREDS_PATH.exists():
-        _write([], f"No predictions_log.csv — run automation/generate_predictions.py first")
+        _write([], "No predictions_log.csv; run automation/generate_predictions.py first")
         return
 
     preds = pd.read_csv(PREDS_PATH)
@@ -83,7 +93,7 @@ def main() -> None:
         try:
             odds = pd.read_csv(ODDS_PATH)
             merge_cols = [c for c in ["HomeTeam", "AwayTeam", date_col] if c in odds.columns]
-            if merge_cols:
+            if {"HomeTeam", "AwayTeam"}.issubset(merge_cols):
                 if date_col in odds.columns:
                     odds[date_col] = pd.to_datetime(odds[date_col], errors="coerce").dt.date
                 today_preds = today_preds.merge(odds, on=merge_cols, how="left", suffixes=("", "_odds"))
@@ -102,30 +112,34 @@ def main() -> None:
         away = str(row.get("AwayTeam", ""))
         game = f"{away} @ {home}"
 
-        for outcome, pred_col, odds_col1, odds_col2 in outcome_cols:
-            pred_p = _safe_float(row.get(pred_col))
-            if pred_p is None:
+        model_probabilities = [_safe_float(row.get(item[1])) for item in outcome_cols]
+        if any(value is None or value < 0 for value in model_probabilities):
+            continue
+        probability_total = sum(model_probabilities)
+        if probability_total <= 0:
+            continue
+        model_probabilities = [value / probability_total for value in model_probabilities]
+
+        decimal_odds = []
+        for _, _, odds_col1, odds_col2 in outcome_cols:
+            price = next(
+                (value for column in (odds_col1, odds_col2)
+                 if (value := _safe_float(row.get(column))) is not None and value > 1),
+                None,
+            )
+            decimal_odds.append(price)
+        if any(price is None for price in decimal_odds):
+            continue
+
+        for (outcome, _, _, _), pred_p, odds_val in zip(outcome_cols, model_probabilities, decimal_odds):
+            market_probability, edge, expected_value = _market_metrics(
+                pred_p, odds_val, decimal_odds
+            )
+            if edge < MIN_PROBABILITY_EDGE or expected_value < MIN_EXPECTED_VALUE:
                 continue
 
-            # Try various odds column names
-            odds_val = None
-            for oc in (odds_col1, odds_col2):
-                v = _safe_float(row.get(oc))
-                if v and v > 1:
-                    odds_val = v
-                    break
-
-            if odds_val:
-                impl = 1.0 / odds_val
-                edge = pred_p - impl
-            else:
-                edge = 0.0
-
-            if edge < EV_THRESHOLD:
-                continue
-
-            tier = _tier_from_edge(edge)
-            american = _decimal_to_american(odds_val) if odds_val else None
+            tier = _tier_from_expected_value(expected_value)
+            american = _decimal_to_american(odds_val)
 
             bet: dict = {
                 "game_date": str(today),
@@ -137,6 +151,8 @@ def main() -> None:
                 "pick": outcome,
                 "confidence": round(pred_p, 4),
                 "edge": round(edge, 4),
+                "market_probability": round(market_probability, 4),
+                "expected_value": round(expected_value, 4),
                 "tier": tier,
                 "odds": american,
                 "line": None,

@@ -30,7 +30,6 @@ class FootballNet(nn.Module):
             prev_size = hidden_size
 
         layers.append(nn.Linear(prev_size, 3))  # 3 output classes
-        layers.append(nn.Softmax(dim=1))
 
         self.network = nn.Sequential(*layers)
 
@@ -47,7 +46,7 @@ def train_neural_model(X_train, y_train, epochs=100, batch_size=32, learning_rat
 
     # Convert to tensors
     X_tensor = torch.FloatTensor(X_scaled)
-    y_tensor = torch.LongTensor(y_train.values)
+    y_tensor = torch.LongTensor(np.asarray(y_train))
 
     # Create model
     model = FootballNet(input_size=X_scaled.shape[1])
@@ -84,8 +83,8 @@ def predict_neural(model, scaler, X_new):
     with torch.no_grad():
         X_scaled = scaler.transform(X_new)
         X_tensor = torch.FloatTensor(X_scaled)
-        predictions = model(X_tensor)
-        return predictions.numpy()
+        logits = model(X_tensor)
+        return torch.softmax(logits, dim=1).numpy()
 
 
 def create_simple_neural_model():

@@ -16,6 +16,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score
 import pickle
 import os
+from copy import deepcopy
 from os import path
 
 
@@ -42,8 +43,7 @@ class FootballLSTM(nn.Module):
             nn.Linear(hidden_size, 32),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
-            nn.Linear(32, 3),  # 3 outputs: Home Win, Draw, Away Win
-            nn.Softmax(dim=1)
+            nn.Linear(32, 3),  # logits for win, draw, loss from the team's perspective
         )
 
     def forward(self, x):
@@ -179,8 +179,7 @@ class LSTMPredictor:
         if sequence_length is None:
             sequence_length = self.sequence_length
 
-        sequences = []
-        labels = []
+        dated_samples = []
 
         # Get unique teams
         teams = df['HomeTeam'].unique()
@@ -220,10 +219,19 @@ class LSTMPredictor:
                     else:
                         label = 2  # Home win (from team's perspective = loss)
 
-                sequences.append(seq_features.flatten())  # Flatten the sequence
-                labels.append(label)
+                dated_samples.append((
+                    pd.to_datetime(target_match['MatchDate']),
+                    seq_features.flatten(),
+                    label,
+                ))
 
-        return np.array(sequences), np.array(labels)
+        # Keeping samples chronological makes the validation tail a genuine
+        # future holdout instead of mixing later matches into model selection.
+        dated_samples.sort(key=lambda sample: sample[0])
+        return (
+            np.array([sample[1] for sample in dated_samples]),
+            np.array([sample[2] for sample in dated_samples]),
+        )
 
     def train_model(self, X_train, y_train, epochs=50, batch_size=32, validation_split=0.2):
         """
@@ -236,24 +244,26 @@ class LSTMPredictor:
             batch_size: Batch size for training
             validation_split: Fraction of data to use for validation
         """
-        # Scale the features
-        X_train_scaled = self.scaler.fit_transform(X_train)
-
         # Reshape for LSTM: (batch_size, sequence_length, input_size)
         # Derive input_size from data to avoid hardcoding mismatch
         sequence_length = self.sequence_length
         input_size = X_train.shape[1] // sequence_length
         self.input_size = input_size  # persist for predict_proba and save/load
 
-        X_train_reshaped = X_train_scaled.reshape(-1, sequence_length, input_size)
+        val_size = max(1, int(validation_split * len(X_train)))
+        train_size = len(X_train) - val_size
+        if train_size < 1:
+            raise ValueError("Not enough sequences for a temporal validation split")
 
-        # Create dataset and dataloader
-        dataset = FootballSequenceDataset(X_train_reshaped, y_train)
-
-        # Split into train/validation
-        val_size = int(validation_split * len(dataset))
-        train_size = len(dataset) - val_size
-        train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+        # Fit preprocessing on the earlier training period only.
+        X_fit = self.scaler.fit_transform(X_train[:train_size])
+        X_val = self.scaler.transform(X_train[train_size:])
+        train_dataset = FootballSequenceDataset(
+            X_fit.reshape(-1, sequence_length, input_size), y_train[:train_size]
+        )
+        val_dataset = FootballSequenceDataset(
+            X_val.reshape(-1, sequence_length, input_size), y_train[train_size:]
+        )
 
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
@@ -267,6 +277,7 @@ class LSTMPredictor:
 
         # Training loop
         best_val_accuracy = 0
+        best_state_dict = None
         patience = 10
         patience_counter = 0
 
@@ -322,20 +333,18 @@ class LSTMPredictor:
             if val_accuracy > best_val_accuracy:
                 best_val_accuracy = val_accuracy
                 patience_counter = 0
-                # Save best model
-                torch.save(self.model.state_dict(), 'models/lstm_best_model.pth')
+                best_state_dict = deepcopy(self.model.state_dict())
             else:
                 patience_counter += 1
                 if patience_counter >= patience:
                     print(f'Early stopping at epoch {epoch+1}')
                     break
 
-        # Load best model
-        if path.exists('models/lstm_best_model.pth'):
-            self.model.load_state_dict(torch.load('models/lstm_best_model.pth'))
+        if best_state_dict is not None:
+            self.model.load_state_dict(best_state_dict)
 
         self.is_trained = True
-        print(f'✅ LSTM model trained successfully! Best validation accuracy: {best_val_accuracy:.2f}%')
+        print(f'LSTM model trained successfully. Best validation accuracy: {best_val_accuracy:.2f}%')
 
     def predict_proba(self, sequences):
         """
@@ -399,26 +408,33 @@ class LSTMPredictor:
                     'AwayWinProb': 0.33
                 }
 
-            # For now, use home team's recent form as primary predictor
-            # In a more sophisticated approach, we'd combine both teams' sequences
             home_sequence = self.extract_match_features(home_recent.sort_values('MatchDate'), home_team)
+            away_sequence = self.extract_match_features(away_recent.sort_values('MatchDate'), away_team)
 
-            if len(home_sequence) == 0:
+            if len(home_sequence) == 0 or len(away_sequence) == 0:
                 return {
-                    'error': f'No sequence data available for {home_team}',
+                    'error': f'No sequence data available for {home_team} or {away_team}',
                     'HomeWinProb': 0.33,
                     'DrawProb': 0.34,
                     'AwayWinProb': 0.33
                 }
 
-            # Flatten and predict
-            sequence_flat = home_sequence.flatten().reshape(1, -1)
-            probabilities = self.predict_proba(sequence_flat)
+            home_probabilities = self.predict_proba(home_sequence.flatten().reshape(1, -1))[0]
+            away_probabilities = self.predict_proba(away_sequence.flatten().reshape(1, -1))[0]
+
+            # Model classes are win/draw/loss from each team's perspective.
+            # Blend the two views and convert them to home/draw/away outcomes.
+            probabilities = np.array([
+                (home_probabilities[0] + away_probabilities[2]) / 2,
+                (home_probabilities[1] + away_probabilities[1]) / 2,
+                (home_probabilities[2] + away_probabilities[0]) / 2,
+            ])
+            probabilities /= probabilities.sum()
 
             return {
-                'HomeWinProb': float(probabilities[0][0]),
-                'DrawProb': float(probabilities[0][1]),
-                'AwayWinProb': float(probabilities[0][2])
+                'HomeWinProb': float(probabilities[0]),
+                'DrawProb': float(probabilities[1]),
+                'AwayWinProb': float(probabilities[2])
             }
 
         except Exception as e:

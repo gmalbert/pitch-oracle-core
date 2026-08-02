@@ -4,23 +4,59 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pitch-oracle-core"
-version = "1.2.0"
+version = "1.3.0"
 description = "Shared league-agnostic core for Pitch Oracle soccer predictions."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
 authors = [{ name = "Pitch Oracle" }]
-dependencies = []
+dependencies = [
+  "numpy>=1.26",
+  "pandas>=2.1",
+]
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
+ml = [
+  "scikit-learn>=1.7,<2",
+  "scipy>=1.11",
+  "xgboost>=2",
+]
+app = [
+  "streamlit>=1.57",
+  "plotly>=5",
+  "matplotlib>=3.8",
+  "reportlab>=4",
+  "requests>=2.31",
+  "python-dotenv>=1",
+]
+neural = ["torch>=2"]
+diagnostics = ["shap>=0.48", "seaborn>=0.13"]
+consumer = [
+  "scikit-learn>=1.7,<2",
+  "scipy>=1.11",
+  "xgboost>=2",
+  "streamlit>=1.57",
+  "plotly>=5",
+  "matplotlib>=3.8",
+  "reportlab>=4",
+  "requests>=2.31",
+  "python-dotenv>=1",
+  "torch>=2",
+  "shap>=0.48",
+  "seaborn>=0.13",
+  "beautifulsoup4>=4.12",
+  "openmeteo-requests>=1.3",
+  "requests-cache>=1.2",
+  "retry-requests>=2",
+]
 
 [tool.setuptools.packages.find]
 include = ["pitch_oracle_core*", "models*"]
 
 [tool.setuptools]
 py-modules = [
-  "analyze_referee_impact", "analyze_team_form", "app_factory", "app_shell", "benchmark_hyperparameters",
+  "analyze_referee_impact", "analyze_team_form", "app_factory", "benchmark_hyperparameters",
   "bzzoiro_football_api", "check_tomorrow_matches", "combine_raw_data",
   "compare_model_features", "evaluate_poisson", "feature_importance_analysis",
   "fetch_api_football", "fetch_clubelo", "fetch_player_data_fd",
@@ -28,6 +64,7 @@ py-modules = [
   "fetch_upcoming_fixtures", "fetch_weather_data", "footer",
   "generate_pdf_report", "manager_data", "model_optimization", "optimize_model",
   "precompute_database", "build_cache_manifest", "prepare_model_data", "scrape_injuries",
+  "precompute_model_diagnostics",
   "scrape_injuries_web", "scrape_referees", "team_name_mapping",
   "track_predictions", "train_models", "validate_models"
 ]

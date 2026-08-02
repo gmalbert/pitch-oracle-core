@@ -1,5 +1,8 @@
 # Implementation Plan
 
+> Historical planning document. Phase 0 is complete in core 1.3.0; use
+> `consumer-migration-1.3.md` and `templates/consumer` for current onboarding.
+
 ## Reality check on the dates first
 
 Today is July 29, 2026. Scotland kicks off in 2 days, Eredivisie/Portugal/Belgium in

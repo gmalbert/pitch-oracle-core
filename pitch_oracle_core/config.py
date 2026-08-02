@@ -25,6 +25,18 @@ class DataSourceConfig:
 
 
 @dataclass(frozen=True)
+class ThemeConfig:
+    """Consumer-level visual overrides for the shared core theme."""
+
+    primary: str = "#1554a6"
+    primary_dark: str = "#0d2f5f"
+    sidebar: str = "#f1f4f8"
+    page: str = "#ffffff"
+    border: str = "#d9e0e8"
+    muted: str = "#64748b"
+
+
+@dataclass(frozen=True)
 class PlayoffConfig:
     name: str
     phase_kind: PhaseKind = "playoff"
@@ -57,5 +69,6 @@ class LeagueConfig:
     stadium_coordinates: dict[str, tuple[float, float]] = field(default_factory=dict)
     team_aliases: dict[str, str] = field(default_factory=dict)
     sources: DataSourceConfig = field(default_factory=DataSourceConfig)
+    theme: ThemeConfig = field(default_factory=ThemeConfig)
     data_dir_name: str = "data_files"
     models_dir_name: str = "models"

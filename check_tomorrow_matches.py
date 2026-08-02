@@ -8,9 +8,10 @@ Used by GitHub Actions to conditionally run data pipeline.
 import pandas as pd
 from datetime import datetime, timedelta
 from os import path
+import os
 import sys
 
-DATA_DIR = 'data_files/'
+DATA_DIR = os.getenv('PITCH_ORACLE_DATA_DIR', 'data_files/')
 
 def check_tomorrow_matches():
     """Check if there are matches scheduled for tomorrow"""

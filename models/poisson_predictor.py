@@ -19,7 +19,7 @@ class PoissonPredictor:
     """Poisson regression model for football goal prediction"""
 
     def __init__(self):
-        self.league_avg_goals = 1.4  # Typical Premier League average
+        self.league_avg_goals = 1.4  # Typical goals per team per match
         self.is_trained = False
 
     def estimate_goals(self, home_attack, home_defense, away_attack, away_defense, league_avg=None):
@@ -39,12 +39,17 @@ class PoissonPredictor:
         if league_avg is None:
             league_avg = self.league_avg_goals
 
-        # Convert defense to strength (inverse of goals conceded)
-        home_def_strength = 1 / (home_defense + 0.1)  # Add small constant to avoid division by zero
-        away_def_strength = 1 / (away_defense + 0.1)
+        values = np.asarray(
+            [home_attack, home_defense, away_attack, away_defense, league_avg],
+            dtype=float,
+        )
+        if not np.isfinite(values).all() or (values < 0).any() or league_avg <= 0:
+            raise ValueError("Goal rates must be finite and non-negative; league average must be positive")
 
-        home_expected = league_avg * home_attack * away_def_strength
-        away_expected = league_avg * away_attack * home_def_strength
+        # Raw attack and goals-conceded rates are converted to relative league
+        # strengths. A leakier defense must increase, not decrease, opposition xG.
+        home_expected = home_attack * away_defense / league_avg
+        away_expected = away_attack * home_defense / league_avg
 
         return home_expected, away_expected
 
@@ -97,7 +102,14 @@ class PoissonPredictor:
                 else:
                     away_win_prob += prob
 
-        return home_win_prob, draw_prob, away_win_prob
+        total_probability = home_win_prob + draw_prob + away_win_prob
+        if total_probability <= 0:
+            raise ValueError("Scoreline matrix contains no probability mass")
+        return (
+            home_win_prob / total_probability,
+            draw_prob / total_probability,
+            away_win_prob / total_probability,
+        )
 
     def predict_with_poisson(self, home_team, away_team, team_stats_df):
         """
@@ -129,9 +141,9 @@ class PoissonPredictor:
 
             # Extract relevant stats (adjust column names as needed)
             home_attack = home_data.get('HomeGoalsAve', home_data.get('AvgHomeGoals', 1.5))
-            home_defense = home_data.get('AwayGoalsConcededAve', home_data.get('AvgAwayGoalsConceded', 1.2))
+            home_defense = home_data.get('HomeGoalsConcededAve', home_data.get('AvgHomeGoalsConceded', 1.2))
             away_attack = away_data.get('AwayGoalsAve', away_data.get('AvgAwayGoals', 1.3))
-            away_defense = away_data.get('HomeGoalsConcededAve', away_data.get('AvgHomeGoalsConceded', 1.1))
+            away_defense = away_data.get('AwayGoalsConcededAve', away_data.get('AvgAwayGoalsConceded', 1.1))
 
             # Calculate expected goals
             home_exp, away_exp = self.estimate_goals(
@@ -224,12 +236,12 @@ if __name__ == "__main__":
     result = predictor.predict_with_poisson('Arsenal', 'Chelsea', sample_stats)
 
     if 'error' not in result:
-        print(f"Arsenal vs Chelsea Prediction:")
-        print(".3f")
-        print(".3f")
-        print(".3f")
-        print(".2f")
-        print(".2f")
+        print("Arsenal vs Chelsea prediction:")
+        print(f"Home win probability: {result['HomeWinProb']:.3f}")
+        print(f"Draw probability: {result['DrawProb']:.3f}")
+        print(f"Away win probability: {result['AwayWinProb']:.3f}")
+        print(f"Expected home goals: {result['ExpectedHomeGoals']:.2f}")
+        print(f"Expected away goals: {result['ExpectedAwayGoals']:.2f}")
         print(f"Most Likely Score: {result['MostLikelyScore']}")
     else:
         print(f"Error: {result['error']}")

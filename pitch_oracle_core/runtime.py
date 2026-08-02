@@ -16,7 +16,11 @@ class Runtime:
     @classmethod
     def for_league(cls, league: LeagueConfig, root: str | Path = ".") -> "Runtime":
         root = Path(root)
-        return cls(league, root / "data_files", root / "models")
+        return cls(
+            league,
+            root / league.data_dir_name,
+            root / league.models_dir_name,
+        )
 
     def environment(self) -> dict[str, str]:
         return {
@@ -41,7 +45,7 @@ class Runtime:
 def current_runtime(default: LeagueConfig) -> Runtime:
     return Runtime(
         default,
-        Path(os.getenv("PITCH_ORACLE_DATA_DIR", "data_files")),
-        Path(os.getenv("PITCH_ORACLE_MODELS_DIR", "models")),
+        Path(os.getenv("PITCH_ORACLE_DATA_DIR", default.data_dir_name)),
+        Path(os.getenv("PITCH_ORACLE_MODELS_DIR", default.models_dir_name)),
     )
 

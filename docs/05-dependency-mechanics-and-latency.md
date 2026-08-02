@@ -12,10 +12,7 @@ or `xgboost`:
 
 ```
 # eredivisie-predictions/requirements.txt
-git+https://github.com/gmalbert/pitch-oracle-core.git@v1.0.0
-streamlit
-pandas
-...
+pitch-oracle-core[consumer] @ git+https://github.com/gmalbert/pitch-oracle-core.git@v1.3.0
 ```
 
 When Streamlit Community Cloud builds the app, it `pip install`s straight from that
@@ -24,19 +21,19 @@ GitHub repo at the pinned tag. The code isn't duplicated into
 
 ```python
 # eredivisie-predictions/entrypoint.py
-from pitch_oracle_core import train_models, evaluate_poisson, app_shell
+from pitch_oracle_core import run_app
 from config import LEAGUE_CONFIG
 
-app_shell.run(LEAGUE_CONFIG)
+run_app(LEAGUE_CONFIG)
 ```
 
 **Why this matters vs. copy/paste:** a bug fix or model improvement in
-`pitch-oracle-core` gets fixed once, tagged as a new version (`v1.2.0`), and then
+`pitch-oracle-core` gets fixed once, tagged as a new version (`v1.3.0`), and then
 each league repo picks it up with a one-line `requirements.txt` bump — not a manual
 re-port into 5 drifted copies of the same file.
 
 **Versioning discipline required:** pin each league repo to a specific tag
-(`@v1.0.0`), not `@main`, or a work-in-progress change to core could break all 5
+(`@v1.3.0`), not `@main`, or a work-in-progress change to core could break all 5
 apps the next time Streamlit Cloud rebuilds them. Bump major versions deliberately
 when core's interface changes. `premier-league` itself becomes consumer #1 of the
 package — if its existing test suite still passes once it's importing from core, the
@@ -52,7 +49,7 @@ the git dependency only matters at **install time**, not request time.
 
 ### Where it does show up: build/deploy time, not the live app
 
-- `pip install git+https://github.com/...@v1.0.0` does a git clone of that tag
+- `pip install git+https://github.com/...@v1.3.0` does a git clone of that tag
   rather than pulling a prebuilt wheel from PyPI — a few extra seconds, not
   minutes, for a repo this size.
 - Streamlit Community Cloud spins down inactive apps and rebuilds the environment

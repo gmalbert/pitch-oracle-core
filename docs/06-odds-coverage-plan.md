@@ -106,7 +106,7 @@ provides `OptionalFeatureSet` for per-league optional feature gating.
      b. `GET /v3/odds?eventId={id}&bookmakers=Bet365&apiKey={key}` — for each event, fetches H/D/A prices
    - Normalizes each response into `OddsEvent` using the existing `normalize_odds()` helper
    - Caches results for 1 hour (avoids redundant calls across league fetches within a session)
-   - Returns `[]` gracefully if API is down, key is missing, or league slug is wrong (same pattern as `_get_bzzoiro_data()` in `app_shell.py`)
+   - Returns `[]` gracefully if API is down, key is missing, or league slug is wrong.
 
 2. **Per-league config** — Each league's thin config gets:
    - `odds_provider = "oddsapiio"`
@@ -115,8 +115,7 @@ provides `OptionalFeatureSet` for per-league optional feature gating.
 
 3. **App integration** — The league's Streamlit entrypoint calls
    `adapter.fetch(league=config.odds_league_slug)` and displays odds in the
-   same UI pattern Bzzoiro uses for EPL. The existing `_get_bzzoiro_data()` and
-   `app_shell.py` display logic is the reference implementation.
+   same league-neutral UI pattern used by `pitch_oracle_core.ui_pages`.
 
 ### Files to touch
 
@@ -126,7 +125,7 @@ provides `OptionalFeatureSet` for per-league optional feature gating.
 | `pitch_oracle_core/__init__.py` | Export `OddsApiIoAdapter` |
 | `pitch_oracle_core/config.py` | Add `odds_league_slug` and `odds_bookmakers` fields |
 | Per-league `config.py` (5 files) | Set league-specific slugs |
-| `pitch_oracle_core/app_shell.py` (or equivalent) | Wire adapter into live-odds display tab |
+| `pitch_oracle_core/ui_pages.py` | Wire adapter into the league-neutral predictions page |
 | `docs/02-data-source-matrix.md` | Remove Bzzoiro row; add Odds-API.io row with coverage notes |
 
 ### What to skip
