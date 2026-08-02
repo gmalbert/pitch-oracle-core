@@ -3,10 +3,27 @@ import pytest
 
 from pitch_oracle_core.features import (
     chronological_split_indices,
+    completed_match_rows,
     is_prematch_feature,
     prematch_feature_columns,
     prior_group_rolling,
 )
+
+
+def test_completed_match_rows_rejects_undated_and_unfinished_fixtures():
+    frame = pd.DataFrame(
+        [
+            {"MatchDate": "2026-08-01", "FullTimeResult": "H"},
+            {"MatchDate": None, "FullTimeResult": "A"},
+            {"MatchDate": "2026-08-03", "FullTimeResult": None},
+        ]
+    )
+
+    result = completed_match_rows(frame)
+
+    assert len(result) == 1
+    assert result.loc[0, "FullTimeResult"] == "H"
+    assert result.loc[0, "MatchDate"] == pd.Timestamp("2026-08-01")
 
 
 def test_feature_policy_removes_postmatch_and_full_sample_leakage():

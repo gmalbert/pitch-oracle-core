@@ -17,7 +17,7 @@ contract shared by training and prediction generation.
 
 ## Upgrade sequence
 
-1. Pin `pitch-oracle-core[consumer]` to `v1.3.0` in the consumer requirements and
+1. Pin `pitch-oracle-core[consumer]` to `v1.3.1` in the consumer requirements and
    every workflow default.
 2. Replace the consumer prediction-cache feature reconstruction with:
 

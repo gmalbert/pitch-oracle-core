@@ -15,6 +15,7 @@ from .goal_markets import GoalMarketProbabilities, calculate_goal_markets
 from .features import (
     FEATURE_POLICY_VERSION,
     chronological_split_indices,
+    completed_match_rows,
     prematch_feature_columns,
     prior_group_rolling,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "current_runtime", "evaluate", "get_league_config", "normalize_odds",
     "require_source", "run_app", "train", "GoalMarketProbabilities",
     "calculate_goal_markets", "FEATURE_POLICY_VERSION", "chronological_split_indices",
+    "completed_match_rows",
     "prematch_feature_columns", "prior_group_rolling", "calculate_prediction_risk",
     "get_prediction_guidance", "get_risk_category",
     "FeatureContract", "build_prediction_frame", "build_upcoming_feature_matrix",

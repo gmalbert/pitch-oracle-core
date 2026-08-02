@@ -10,6 +10,19 @@ import numpy as np
 import pandas as pd
 
 
+def completed_match_rows(
+    frame: pd.DataFrame,
+    *,
+    date_column: str = "MatchDate",
+    result_column: str = "FullTimeResult",
+) -> pd.DataFrame:
+    """Return dated, completed matches suitable for point-in-time features."""
+    result = frame.copy()
+    result[date_column] = pd.to_datetime(result[date_column], errors="coerce")
+    valid = result[date_column].notna() & result[result_column].isin(("H", "D", "A"))
+    return result.loc[valid].reset_index(drop=True)
+
+
 FEATURE_POLICY_VERSION = 2
 
 # These fields are outcomes, in-match observations, or aggregates currently
