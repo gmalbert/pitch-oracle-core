@@ -5,13 +5,15 @@ from __future__ import annotations
 import math
 from pathlib import Path
 import pickle
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from config import LEAGUE_CONFIG
 from pitch_oracle_core import FeatureContract, __version__
 from pitch_oracle_core.cache import validate_cache
-
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def main() -> None:

@@ -15,6 +15,7 @@ python -m venv venv
 venv\\Scripts\\python -m pip install -r requirements.txt
 venv\\Scripts\\python -m compileall -q .
 venv\\Scripts\\python -m pytest -q
+venv\\Scripts\\python scripts/bootstrap_local.py
 venv\\Scripts\\streamlit run predictions.py
 ```
 
@@ -26,6 +27,7 @@ source venv/bin/activate
 python -m pip install -r requirements.txt
 python -m compileall -q .
 python -m pytest -q
+python scripts/bootstrap_local.py
 streamlit run predictions.py
 ```
 

@@ -20,7 +20,7 @@ def test_cache_manifest_round_trip(tmp_path):
 
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     assert payload["schema_version"] == 2
-    assert payload["core_version"] == "1.3.4"
+    assert payload["core_version"] == "1.3.5"
     assert payload["feature_policy_version"] >= 2
     assert payload["league"] == "test"
     assert payload["artifacts"]["fixture"]["bytes"] == 6

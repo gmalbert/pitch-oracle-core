@@ -17,6 +17,9 @@ def test_bootstrap_creates_specialized_turnkey_consumer(tmp_path: Path):
     entrypoint = (target / "predictions.py").read_text()
     assert "The shared Pitch Oracle package is not installed" in entrypoint
     assert "python -m pip install -r requirements.txt" in entrypoint
+    bootstrap = (target / "scripts" / "bootstrap_local.py").read_text()
+    assert 'environment["PITCH_ORACLE_LEAGUE"] = LEAGUE_CONFIG.key' in bootstrap
+    assert '"-m", "precompute_database"' in bootstrap
     assert (target / "scripts" / "verify_consumer.py").is_file()
     assert (target / "precomputed" / ".gitkeep").is_file()
     assert not tuple(target.rglob("__pycache__"))
