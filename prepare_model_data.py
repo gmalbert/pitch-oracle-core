@@ -5,7 +5,7 @@ from os import path
 import os
 import numpy as np
 from scipy import stats
-from pitch_oracle_core.features import prior_group_rolling
+from pitch_oracle_core.features import completed_match_rows, prior_group_rolling
 from pitch_oracle_core.leagues import get_league_config
 
 DATA_DIR = os.getenv('PITCH_ORACLE_DATA_DIR', 'data_files/')
@@ -162,8 +162,13 @@ historical_data.rename(columns=column_rename_map, inplace=True)
 historical_data.dropna(axis=1, how='all', inplace=True)
 historical_data.drop(columns=['Division'], inplace=True, errors='ignore')
 
-# Parse MatchDate to datetime (already in YYYY-MM-DD format)
-historical_data['MatchDate'] = pd.to_datetime(historical_data['MatchDate'], errors='coerce')
+# Feature generation only admits dated, completed fixtures. Upstream season files
+# can contain placeholder/future rows with blank dates or results.
+source_rows = len(historical_data)
+historical_data = completed_match_rows(historical_data)
+dropped_rows = source_rows - len(historical_data)
+if dropped_rows:
+    print(f"Dropped {dropped_rows} undated or unfinished historical rows")
 
 # HomeWin, AwayWin, Draw columns
 historical_data['HomeWin'] = (historical_data['FullTimeResult'] == 'H').astype(int)

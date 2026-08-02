@@ -7,9 +7,9 @@ on:
 
 jobs:
   build:
-    uses: gmalbert/pitch-oracle-core/.github/workflows/precompute-consumer.yml@v1.3.0
+    uses: gmalbert/pitch-oracle-core/.github/workflows/precompute-consumer.yml@v1.3.1
     with:
-      core_ref: v1.3.0
+      core_ref: v1.3.1
       league_key: eredivisie
       data_command: >-
         python -m combine_raw_data &&

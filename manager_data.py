@@ -4,6 +4,8 @@ Manager and tactical data for Premier League teams.
 Contains historical manager performance statistics and tactical preferences.
 """
 
+import pandas as pd
+
 MANAGER_RECORDS = {
     'Pep Guardiola': {
         'WinRate': 0.73,
@@ -551,7 +553,7 @@ def get_current_manager(team_name, match_date=None):
     Returns:
         str: Manager name or None if not found
     """
-    if match_date is None:
+    if match_date is None or pd.isna(match_date):
         return TEAM_MANAGERS.get(team_name)
     
     # Convert Timestamp to string if needed
