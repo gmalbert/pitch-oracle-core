@@ -7,6 +7,10 @@ on:
         description: "Pinned pitch-oracle-core tag or commit"
         required: true
         type: string
+      league_key:
+        description: "League key registered by pitch-oracle-core"
+        required: true
+        type: string
       install_command:
         description: "Consumer dependency installation command"
         required: false
@@ -32,6 +36,8 @@ jobs:
   build-cache:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      PITCH_ORACLE_LEAGUE: ${{ inputs.league_key }}
     steps:
       - name: Checkout league consumer
         uses: actions/checkout@v4
@@ -46,7 +52,8 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           ${{ inputs.install_command }}
-          python -m pip install "pitch-oracle-core @ git+https://github.com/gmalbert/pitch-oracle-core.git@${{ inputs.core_ref }}"
+          python -m pip install "pitch-oracle-core[consumer] @ git+https://github.com/gmalbert/pitch-oracle-core.git@${{ inputs.core_ref }}"
+          python -m pip check
 
       - name: Prepare league data
         shell: bash
@@ -58,6 +65,9 @@ jobs:
 
       - name: Precompute model features
         run: python -m precompute_database
+
+      - name: Precompute model diagnostics
+        run: python -m precompute_model_diagnostics
 
       - name: Precompute upcoming predictions
         shell: bash

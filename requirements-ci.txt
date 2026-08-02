@@ -8,6 +8,13 @@ scipy
 xgboost
 torch
 pytest
+streamlit>=1.57
+plotly
+matplotlib
+reportlab
+python-dotenv
+shap
+seaborn
 openmeteo-requests
 requests-cache
 retry-requests

@@ -5,12 +5,11 @@ from os import path
 import os
 import numpy as np
 from scipy import stats
-from sklearn.impute import KNNImputer
-from scrape_injuries_web import scrape_football_injury_news as scrape_premier_injuries, create_injury_features
-from fetch_weather_data import add_weather_features, add_weather_impact_category
-from manager_data import get_current_manager, get_manager_stats, calculate_manager_advantage
+from pitch_oracle_core.features import prior_group_rolling
+from pitch_oracle_core.leagues import get_league_config
 
 DATA_DIR = os.getenv('PITCH_ORACLE_DATA_DIR', 'data_files/')
+LEAGUE_CONFIG = get_league_config(os.getenv('PITCH_ORACLE_LEAGUE', 'epl'))
 
 # Load the combined raw historical data
 historical_data = pd.read_csv(path.join(DATA_DIR, 'combined_historical_data.csv'), sep='\t')
@@ -291,12 +290,16 @@ historical_data = historical_data.sort_values('MatchDate')
 
 # Rolling sum of points for last 5 games (recent form)
 historical_data['HomeTeamPointsLast5'] = (
-    historical_data.groupby('HomeTeam')['HomePoints']
-    .rolling(window=5, min_periods=1).sum().reset_index(0, drop=True)
+    prior_group_rolling(
+        historical_data, group='HomeTeam', value='HomePoints', window=5,
+        aggregation='sum'
+    )
 )
 historical_data['AwayTeamPointsLast5'] = (
-    historical_data.groupby('AwayTeam')['AwayPoints']
-    .rolling(window=5, min_periods=1).sum().reset_index(0, drop=True)
+    prior_group_rolling(
+        historical_data, group='AwayTeam', value='AwayPoints', window=5,
+        aggregation='sum'
+    )
 )
 
 def calc_h2h(row, df, n=5):
@@ -362,29 +365,17 @@ historical_data_with_calculations = pd.merge(
 historical_data_with_calculations.drop(columns=['Team', 'Team_Away'], inplace=True, errors='ignore')
 
 def smart_imputation(df):
-    """Use KNN imputation for missing values in numeric columns"""
-    print("Applying KNN imputation for missing data...")
-    
+    """Preserve missing values for train-period-only imputation downstream.
+
+    Fitting KNN or mean imputation over the complete historical frame exposes
+    training rows to future observations.  ``train_models`` and
+    ``precompute_database`` persist imputation values fitted only on the
+    chronological training partition, so this preparation stage must not fit an
+    imputer of its own.
+    """
+    print("Deferring numeric imputation to the chronological training split...")
     numeric_cols = df.select_dtypes(include=[np.number]).columns
-    
-    # Only impute columns that have at least some non-null values
-    cols_to_impute = [col for col in numeric_cols if df[col].notna().sum() > 0]
-    
-    if len(cols_to_impute) > 0:
-        imputer = KNNImputer(n_neighbors=5)
-        imputed_array = imputer.fit_transform(df[cols_to_impute])
-        imputed_df = pd.DataFrame(imputed_array, columns=cols_to_impute, index=df.index)
-        df[cols_to_impute] = imputed_df
-    
-    # For columns that are all null, fill with 0 or mean if available
-    for col in numeric_cols:
-        if df[col].isnull().all():
-            df[col] = df[col].fillna(0)
-        elif df[col].isnull().any():
-            # If still has nulls after KNN (shouldn't happen), fill with mean
-            df[col] = df[col].fillna(df[col].mean())
-    
-    print(f"Imputed {len(cols_to_impute)} numeric columns")
+    df[numeric_cols] = df[numeric_cols].replace([np.inf, -np.inf], np.nan)
     return df
 
 def extract_betting_features(df):
@@ -447,20 +438,36 @@ def extract_betting_features(df):
 # Extract betting features
 historical_data_with_calculations = extract_betting_features(historical_data_with_calculations)
 
-# Add injury data
-print("Scraping injury data from PremierInjuries.com...")
-injury_df = scrape_premier_injuries()
-historical_data_with_calculations = create_injury_features(historical_data_with_calculations, injury_df)
+# Add injury data only when the league declares a compatible provider.
+if LEAGUE_CONFIG.sources.injuries:
+    from scrape_injuries_web import scrape_football_injury_news, create_injury_features
+    print(f"Scraping injury data for {LEAGUE_CONFIG.display_name}...")
+    injury_df = scrape_football_injury_news(LEAGUE_CONFIG)
+    historical_data_with_calculations = create_injury_features(historical_data_with_calculations, injury_df)
+else:
+    print(f"Injury data disabled for {LEAGUE_CONFIG.display_name}; skipping")
 
 # Add weather data
-print("Adding weather data from Open-Meteo (completely free)...")
-try:
-    historical_data_with_calculations = add_weather_features(historical_data_with_calculations)
-    historical_data_with_calculations = add_weather_impact_category(historical_data_with_calculations)
-    print("Weather data integration completed")
-except Exception as e:
-    print(f"Warning: Weather data integration failed: {e}")
-    print("Continuing without weather data...")
+if LEAGUE_CONFIG.sources.weather:
+    from fetch_weather_data import add_weather_features, add_weather_impact_category
+    print("Adding weather data from Open-Meteo...")
+    try:
+        historical_data_with_calculations = add_weather_features(
+            historical_data_with_calculations,
+            stadium_map={team: team for team in LEAGUE_CONFIG.stadium_coordinates},
+            stadium_coords={
+                team: {"lat": coordinates[0], "lon": coordinates[1]}
+                for team, coordinates in LEAGUE_CONFIG.stadium_coordinates.items()
+            },
+            data_dir=DATA_DIR,
+        )
+        historical_data_with_calculations = add_weather_impact_category(historical_data_with_calculations)
+        print("Weather data integration completed")
+    except Exception as e:
+        print(f"Warning: Weather data integration failed: {e}")
+        print("Continuing without weather data...")
+else:
+    print(f"Weather data disabled for {LEAGUE_CONFIG.display_name}; skipping")
 
 def calculate_advanced_metrics(df):
     """Calculate advanced team performance metrics from HISTORICAL data only"""
@@ -514,29 +521,29 @@ def calculate_advanced_metrics(df):
     
     # Now create rolling averages from PAST matches only (using shift to exclude current match)
     # Home team metrics
-    df['HomexG_Avg_L5'] = df.groupby('HomeTeam')['xG_Home_Match'].shift(1).rolling(5, min_periods=1).mean().reset_index(level=0, drop=True)
-    df['HomeShootingEff_Avg_L5'] = df.groupby('HomeTeam')['ShootingEff_Home_Match'].shift(1).rolling(5, min_periods=1).mean().reset_index(level=0, drop=True)
-    df['HomeMomentum_L3'] = df.groupby('HomeTeam')['FullTimeHomeGoals'].shift(1).rolling(3, min_periods=1).sum().reset_index(level=0, drop=True)
-    df['HomeGoalDiff_Avg_L5'] = df.groupby('HomeTeam')['GoalDiff_Home_Match'].shift(1).rolling(5, min_periods=1).mean().reset_index(level=0, drop=True)
+    df['HomexG_Avg_L5'] = prior_group_rolling(df, group='HomeTeam', value='xG_Home_Match', window=5)
+    df['HomeShootingEff_Avg_L5'] = prior_group_rolling(df, group='HomeTeam', value='ShootingEff_Home_Match', window=5)
+    df['HomeMomentum_L3'] = prior_group_rolling(df, group='HomeTeam', value='FullTimeHomeGoals', window=3, aggregation='sum')
+    df['HomeGoalDiff_Avg_L5'] = prior_group_rolling(df, group='HomeTeam', value='GoalDiff_Home_Match', window=5)
     
     # Away team metrics
-    df['AwayxG_Avg_L5'] = df.groupby('AwayTeam')['xG_Away_Match'].shift(1).rolling(5, min_periods=1).mean().reset_index(level=0, drop=True)
-    df['AwayShootingEff_Avg_L5'] = df.groupby('AwayTeam')['ShootingEff_Away_Match'].shift(1).rolling(5, min_periods=1).mean().reset_index(level=0, drop=True)
-    df['AwayMomentum_L3'] = df.groupby('AwayTeam')['FullTimeAwayGoals'].shift(1).rolling(3, min_periods=1).sum().reset_index(level=0, drop=True)
-    df['AwayGoalDiff_Avg_L5'] = df.groupby('AwayTeam')['GoalDiff_Away_Match'].shift(1).rolling(5, min_periods=1).mean().reset_index(level=0, drop=True)
+    df['AwayxG_Avg_L5'] = prior_group_rolling(df, group='AwayTeam', value='xG_Away_Match', window=5)
+    df['AwayShootingEff_Avg_L5'] = prior_group_rolling(df, group='AwayTeam', value='ShootingEff_Away_Match', window=5)
+    df['AwayMomentum_L3'] = prior_group_rolling(df, group='AwayTeam', value='FullTimeAwayGoals', window=3, aggregation='sum')
+    df['AwayGoalDiff_Avg_L5'] = prior_group_rolling(df, group='AwayTeam', value='GoalDiff_Away_Match', window=5)
     
     # Poisson-based rolling averages
-    df['Home_Poisson_0_Goals_Avg_L5'] = df.groupby('HomeTeam')['Home_Poisson_0_Goals'].shift(1).rolling(5, min_periods=1).mean().reset_index(level=0, drop=True)
-    df['Home_Poisson_1_Goal_Avg_L5'] = df.groupby('HomeTeam')['Home_Poisson_1_Goal'].shift(1).rolling(5, min_periods=1).mean().reset_index(level=0, drop=True)
-    df['Home_Poisson_2_3_Goals_Avg_L5'] = df.groupby('HomeTeam')['Home_Poisson_2_3_Goals'].shift(1).rolling(5, min_periods=1).mean().reset_index(level=0, drop=True)
-    df['Home_Poisson_4Plus_Goals_Avg_L5'] = df.groupby('HomeTeam')['Home_Poisson_4Plus_Goals'].shift(1).rolling(5, min_periods=1).mean().reset_index(level=0, drop=True)
-    df['Home_Poisson_xPTS_Avg_L5'] = df.groupby('HomeTeam')['Poisson_Home_xPTS'].shift(1).rolling(5, min_periods=1).mean().reset_index(level=0, drop=True)
+    df['Home_Poisson_0_Goals_Avg_L5'] = prior_group_rolling(df, group='HomeTeam', value='Home_Poisson_0_Goals', window=5)
+    df['Home_Poisson_1_Goal_Avg_L5'] = prior_group_rolling(df, group='HomeTeam', value='Home_Poisson_1_Goal', window=5)
+    df['Home_Poisson_2_3_Goals_Avg_L5'] = prior_group_rolling(df, group='HomeTeam', value='Home_Poisson_2_3_Goals', window=5)
+    df['Home_Poisson_4Plus_Goals_Avg_L5'] = prior_group_rolling(df, group='HomeTeam', value='Home_Poisson_4Plus_Goals', window=5)
+    df['Home_Poisson_xPTS_Avg_L5'] = prior_group_rolling(df, group='HomeTeam', value='Poisson_Home_xPTS', window=5)
     
-    df['Away_Poisson_0_Goals_Avg_L5'] = df.groupby('AwayTeam')['Away_Poisson_0_Goals'].shift(1).rolling(5, min_periods=1).mean().reset_index(level=0, drop=True)
-    df['Away_Poisson_1_Goal_Avg_L5'] = df.groupby('AwayTeam')['Away_Poisson_1_Goal'].shift(1).rolling(5, min_periods=1).mean().reset_index(level=0, drop=True)
-    df['Away_Poisson_2_3_Goals_Avg_L5'] = df.groupby('AwayTeam')['Away_Poisson_2_3_Goals'].shift(1).rolling(5, min_periods=1).mean().reset_index(level=0, drop=True)
-    df['Away_Poisson_4Plus_Goals_Avg_L5'] = df.groupby('AwayTeam')['Away_Poisson_4Plus_Goals'].shift(1).rolling(5, min_periods=1).mean().reset_index(level=0, drop=True)
-    df['Away_Poisson_xPTS_Avg_L5'] = df.groupby('AwayTeam')['Poisson_Away_xPTS'].shift(1).rolling(5, min_periods=1).mean().reset_index(level=0, drop=True)
+    df['Away_Poisson_0_Goals_Avg_L5'] = prior_group_rolling(df, group='AwayTeam', value='Away_Poisson_0_Goals', window=5)
+    df['Away_Poisson_1_Goal_Avg_L5'] = prior_group_rolling(df, group='AwayTeam', value='Away_Poisson_1_Goal', window=5)
+    df['Away_Poisson_2_3_Goals_Avg_L5'] = prior_group_rolling(df, group='AwayTeam', value='Away_Poisson_2_3_Goals', window=5)
+    df['Away_Poisson_4Plus_Goals_Avg_L5'] = prior_group_rolling(df, group='AwayTeam', value='Away_Poisson_4Plus_Goals', window=5)
+    df['Away_Poisson_xPTS_Avg_L5'] = prior_group_rolling(df, group='AwayTeam', value='Poisson_Away_xPTS', window=5)
     
     # Drop intermediate match-level calculations
     df = df.drop(columns=['xG_Home_Match', 'xG_Away_Match', 'ShootingEff_Home_Match', 
@@ -651,6 +658,8 @@ def add_manager_features(df):
     Returns:
         pd.DataFrame: Data with manager features added
     """
+    from manager_data import get_current_manager, get_manager_stats, calculate_manager_advantage
+
     print("Adding manager features...")
 
     # Map teams to managers based on match date
@@ -718,11 +727,20 @@ historical_data_with_calculations = smart_imputation(historical_data_with_calcul
 print("Calculating advanced team metrics...")
 historical_data_with_calculations = calculate_advanced_metrics(historical_data_with_calculations)
 
-# Calculate referee statistics
-historical_data_with_calculations = calculate_referee_statistics(historical_data_with_calculations)
+# Calculate referee statistics only for leagues with a configured source.  The
+# resulting Ref* fields remain excluded from training until their aggregates are
+# made point-in-time.
+if LEAGUE_CONFIG.sources.referee:
+    historical_data_with_calculations = calculate_referee_statistics(historical_data_with_calculations)
+else:
+    print(f"Referee features disabled for {LEAGUE_CONFIG.display_name}; skipping")
 
-# Add manager features
-historical_data_with_calculations = add_manager_features(historical_data_with_calculations)
+# The migrated manager history is EPL-specific.  Other consumers must provide a
+# league adapter before manager fields are enabled.
+if LEAGUE_CONFIG.key == 'epl':
+    historical_data_with_calculations = add_manager_features(historical_data_with_calculations)
+else:
+    print(f"Manager history unavailable for {LEAGUE_CONFIG.display_name}; skipping")
 
 
 # ---------------------------------------------------------------------------
@@ -762,12 +780,16 @@ def calculate_league_position_features(df):
 
     # Cumulative goal difference (home perspective, home matches only — fast proxy)
     home_gd = (
-        df.groupby(['Season', 'HomeTeam'])['FullTimeHomeGoals'].shift(1).cumsum()
-        - df.groupby(['Season', 'HomeTeam'])['FullTimeAwayGoals'].shift(1).cumsum()
+        df.groupby(['Season', 'HomeTeam'], sort=False)['FullTimeHomeGoals']
+        .transform(lambda series: series.shift(1).cumsum())
+        - df.groupby(['Season', 'HomeTeam'], sort=False)['FullTimeAwayGoals']
+        .transform(lambda series: series.shift(1).cumsum())
     )
     away_gd = (
-        df.groupby(['Season', 'AwayTeam'])['FullTimeAwayGoals'].shift(1).cumsum()
-        - df.groupby(['Season', 'AwayTeam'])['FullTimeHomeGoals'].shift(1).cumsum()
+        df.groupby(['Season', 'AwayTeam'], sort=False)['FullTimeAwayGoals']
+        .transform(lambda series: series.shift(1).cumsum())
+        - df.groupby(['Season', 'AwayTeam'], sort=False)['FullTimeHomeGoals']
+        .transform(lambda series: series.shift(1).cumsum())
     )
     df['HomeGoalDiffSeason'] = home_gd.fillna(0)
     df['AwayGoalDiffSeason'] = away_gd.fillna(0)
@@ -798,27 +820,19 @@ def calculate_clean_sheet_features(df):
     df['_AwayFTS'] = (df['FullTimeAwayGoals'] == 0).astype(int)  # away failed to score
 
     df['HomeCleanSheetPct_L10'] = (
-        df.groupby('HomeTeam')['_HomeCS']
-        .shift(1).rolling(10, min_periods=1).mean()
-        .reset_index(level=0, drop=True)
+        prior_group_rolling(df, group='HomeTeam', value='_HomeCS', window=10)
         .fillna(0.30)
     )
     df['AwayCleanSheetPct_L10'] = (
-        df.groupby('AwayTeam')['_AwayCS']
-        .shift(1).rolling(10, min_periods=1).mean()
-        .reset_index(level=0, drop=True)
+        prior_group_rolling(df, group='AwayTeam', value='_AwayCS', window=10)
         .fillna(0.30)
     )
     df['HomeFailedToScorePct_L10'] = (
-        df.groupby('HomeTeam')['_HomeFTS']
-        .shift(1).rolling(10, min_periods=1).mean()
-        .reset_index(level=0, drop=True)
+        prior_group_rolling(df, group='HomeTeam', value='_HomeFTS', window=10)
         .fillna(0.20)
     )
     df['AwayFailedToScorePct_L10'] = (
-        df.groupby('AwayTeam')['_AwayFTS']
-        .shift(1).rolling(10, min_periods=1).mean()
-        .reset_index(level=0, drop=True)
+        prior_group_rolling(df, group='AwayTeam', value='_AwayFTS', window=10)
         .fillna(0.20)
     )
 
@@ -841,17 +855,19 @@ def calculate_home_away_split_form(df):
 
     # Home team's form in their last 5 HOME games
     df['HomeTeamPointsLast5_HomeOnly'] = (
-        df.groupby('HomeTeam')['HomePoints']
-        .shift(1).rolling(5, min_periods=1).sum()
-        .reset_index(level=0, drop=True)
+        prior_group_rolling(
+            df, group='HomeTeam', value='HomePoints', window=5,
+            aggregation='sum'
+        )
         .fillna(5.0)
     )
 
     # Away team's form in their last 5 AWAY games
     df['AwayTeamPointsLast5_AwayOnly'] = (
-        df.groupby('AwayTeam')['AwayPoints']
-        .shift(1).rolling(5, min_periods=1).sum()
-        .reset_index(level=0, drop=True)
+        prior_group_rolling(
+            df, group='AwayTeam', value='AwayPoints', window=5,
+            aggregation='sum'
+        )
         .fillna(5.0)
     )
 
@@ -865,15 +881,17 @@ def calculate_home_away_split_form(df):
     df['_AwayWin'] = (df['FullTimeResult'] == 'A').astype(int)
 
     df['HomeWinStreakHome_L5'] = (
-        df.groupby('HomeTeam')['_HomeWin']
-        .shift(1).rolling(5, min_periods=1).sum()
-        .reset_index(level=0, drop=True)
+        prior_group_rolling(
+            df, group='HomeTeam', value='_HomeWin', window=5,
+            aggregation='sum'
+        )
         .fillna(1.5)
     )
     df['AwayWinStreakAway_L5'] = (
-        df.groupby('AwayTeam')['_AwayWin']
-        .shift(1).rolling(5, min_periods=1).sum()
-        .reset_index(level=0, drop=True)
+        prior_group_rolling(
+            df, group='AwayTeam', value='_AwayWin', window=5,
+            aggregation='sum'
+        )
         .fillna(1.0)
     )
     df.drop(columns=['_HomeWin', '_AwayWin'], inplace=True)
@@ -1103,25 +1121,17 @@ def merge_understat_xg_features(df):
     df = df.sort_values('MatchDate').reset_index(drop=True)
 
     df['HomeXG_Understat_L5'] = (
-        df.groupby('HomeTeam')['HomeXG_Understat']
-        .shift(1).rolling(5, min_periods=1).mean()
-        .reset_index(level=0, drop=True)
+        prior_group_rolling(df, group='HomeTeam', value='HomeXG_Understat', window=5)
     )
     df['AwayXG_Understat_L5'] = (
-        df.groupby('AwayTeam')['AwayXG_Understat']
-        .shift(1).rolling(5, min_periods=1).mean()
-        .reset_index(level=0, drop=True)
+        prior_group_rolling(df, group='AwayTeam', value='AwayXG_Understat', window=5)
     )
     # xG conceded: away xG scored against the home team, and vice versa
     df['HomeXGA_Understat_L5'] = (
-        df.groupby('HomeTeam')['AwayXG_Understat']
-        .shift(1).rolling(5, min_periods=1).mean()
-        .reset_index(level=0, drop=True)
+        prior_group_rolling(df, group='HomeTeam', value='AwayXG_Understat', window=5)
     )
     df['AwayXGA_Understat_L5'] = (
-        df.groupby('AwayTeam')['HomeXG_Understat']
-        .shift(1).rolling(5, min_periods=1).mean()
-        .reset_index(level=0, drop=True)
+        prior_group_rolling(df, group='AwayTeam', value='HomeXG_Understat', window=5)
     )
 
     # Fill NaNs: prefer existing shot-based proxy; fall back to league default

@@ -15,10 +15,13 @@ import numpy as np
 import pickle
 import os
 from os import path
-from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import train_test_split
 import warnings
 import time
+from pitch_oracle_core.features import (
+    FEATURE_POLICY_VERSION,
+    chronological_split_indices,
+    prematch_feature_columns,
+)
 
 warnings.filterwarnings('ignore')
 
@@ -38,73 +41,57 @@ def precompute_data():
     Expected speedup: 6-10x faster app startup (from 30-60s to 5-10s)
     """
     start_time = time.time()
-    print("🚀 Starting data precomputation...")
+    print("Starting data precomputation...")
     
     # Load raw data
     csv_path = path.join(DATA_DIR, 'combined_historical_data_with_calculations_new.csv')
     
     if not path.exists(csv_path):
-        print(f"❌ Error: Data file not found at {csv_path}")
+        print(f"ERROR: Data file not found at {csv_path}")
         return False
     
-    print(f"📂 Loading data from {csv_path}...")
+    print(f"Loading data from {csv_path}...")
     df = pd.read_csv(csv_path, sep='\t')
     initial_rows = len(df)
     print(f"   Loaded {initial_rows:,} rows")
     
     # Data preparation (matches app logic exactly)
-    print("🔄 Processing features...")
+    print("Processing features...")
     target_map = {'H': 0, 'D': 1, 'A': 2}
     df = df[df['FullTimeResult'].isin(target_map.keys())].copy()
     df['target'] = df['FullTimeResult'].map(target_map)
-    
-    drop_cols = [
-        'FullTimeResult', 'FullTimeHomeGoals', 'FullTimeAwayGoals',
-        'HalfTimeResult', 'HalfTimeHomeGoals', 'HalfTimeAwayGoals',
-        'HomeWin', 'AwayWin', 'Draw', 'WinningTeam',
-        'HomePoints', 'AwayPoints', 'HomeTeamCumulativePoints', 'AwayTeamCumulativePoints',
-        'MatchDate', 'KickoffTime', 'Season', 'Round', 'Venue', 'Referee',
-        'HomeTeam', 'AwayTeam', 'Division'
-    ]
-    
-    X = df.drop(columns=[col for col in drop_cols if col in df.columns] + ['target'], errors='ignore')
+    dates = pd.to_datetime(df['MatchDate'], errors='coerce')
+    valid_dates = dates.notna()
+    df, dates = df.loc[valid_dates].copy(), dates.loc[valid_dates]
+    X = df[prematch_feature_columns(df)]
     y = df['target']
     
     # Process numeric features
-    X_numeric = X.select_dtypes(include=[np.number]).drop(columns=drop_cols, errors='ignore')
+    X_numeric = X.select_dtypes(include=[np.number])
     print(f"   Found {len(X_numeric.columns)} numeric features")
     
-    # Encode categorical features
-    cat_cols = X.select_dtypes(include=['object']).columns
-    X_categorical = pd.DataFrame()
-    
-    if len(cat_cols) > 0:
-        print(f"   Encoding {len(cat_cols)} categorical features...")
-        for col in cat_cols:
-            if col not in drop_cols:
-                le = LabelEncoder()
-                X_categorical[col] = le.fit_transform(X[col].astype(str))
-    
-    # Combine features
-    X = pd.concat([X_numeric, X_categorical], axis=1)
-    X = X.fillna(X.mean())
+    # Categorical encoders are intentionally omitted until the fitted encoder
+    # can be persisted with the model and reused identically at inference.
+    X = X_numeric.copy()
     
     # Ensure consistent feature names
     if isinstance(X, pd.DataFrame):
-        X.columns = [f'feature_{i}' for i in range(X.shape[1])]
         feature_names = X.columns.tolist()
-    
-    X_processed = X.values
-    y_processed = y.values
+        X.columns = [f'feature_{i}' for i in range(X.shape[1])]
     
     # Create train/test split (consistent with app)
-    print("✂️  Creating train/test split...")
-    X_train, X_test, y_train, y_test = train_test_split(
-        X_processed, y_processed, 
-        test_size=0.2, 
-        random_state=42, 
-        stratify=y_processed
-    )
+    print("Creating train/test split...")
+    train_indices, test_indices = chronological_split_indices(dates, test_size=0.2)
+    train_means = X.iloc[train_indices].mean().fillna(0.0)
+    imputation_values = {
+        source_name: float(train_means.iloc[position])
+        for position, source_name in enumerate(feature_names)
+    }
+    X = X.fillna(train_means).fillna(0.0)
+    X_processed = X.values
+    y_processed = y.values
+    X_train, X_test = X_processed[train_indices], X_processed[test_indices]
+    y_train, y_test = y_processed[train_indices], y_processed[test_indices]
     
     # Package data for saving
     preprocessed_data = {
@@ -113,6 +100,11 @@ def precompute_data():
         'y_train': y_train,
         'y_test': y_test,
         'feature_names': feature_names,
+        'feature_contract': {
+            'version': FEATURE_POLICY_VERSION,
+            'feature_names': feature_names,
+            'imputation_values': imputation_values,
+        },
         'df_sample': df.head(1000),  # Small sample for quick operations
         'metadata': {
             'total_samples': len(X_processed),
@@ -120,7 +112,9 @@ def precompute_data():
             'test_samples': len(X_test),
             'num_features': X_processed.shape[1],
             'processed_date': pd.Timestamp.now().isoformat(),
-            'source_file': csv_path
+            'source_file': csv_path,
+            'feature_policy_version': FEATURE_POLICY_VERSION,
+            'split_strategy': 'chronological',
         }
     }
     
@@ -128,7 +122,7 @@ def precompute_data():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     output_path = path.join(OUTPUT_DIR, 'preprocessed_data.pkl')
     
-    print(f"💾 Saving preprocessed data to {output_path}...")
+    print(f"Saving preprocessed data to {output_path}...")
     with open(output_path, 'wb') as f:
         pickle.dump(preprocessed_data, f)
     
@@ -139,16 +133,16 @@ def precompute_data():
     
     # Print summary
     print("\n" + "="*60)
-    print("✅ PRECOMPUTATION COMPLETE!")
+    print("PRECOMPUTATION COMPLETE")
     print("="*60)
-    print(f"📊 Summary:")
-    print(f"   • Training samples: {len(X_train):,}")
-    print(f"   • Test samples: {len(X_test):,}")
-    print(f"   • Total features: {X_processed.shape[1]}")
-    print(f"   • Output file: {output_path}")
-    print(f"   • File size: {file_size:.2f} MB")
-    print(f"   • Processing time: {elapsed_time:.2f} seconds")
-    print(f"\n🚀 Expected app startup speedup: 6-10x faster")
+    print("Summary:")
+    print(f"   Training samples: {len(X_train):,}")
+    print(f"   Test samples: {len(X_test):,}")
+    print(f"   Total features: {X_processed.shape[1]}")
+    print(f"   Output file: {output_path}")
+    print(f"   File size: {file_size:.2f} MB")
+    print(f"   Processing time: {elapsed_time:.2f} seconds")
+    print("\nExpected app startup speedup: 6-10x faster")
     print("="*60)
     
     return True

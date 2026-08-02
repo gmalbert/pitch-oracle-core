@@ -102,7 +102,7 @@ STADIUM_MAP = {
     'Sunderland': 'Stadium of Light',
 }
 
-def fetch_match_weather(stadium_location, match_date, api_key=None):
+def fetch_match_weather(stadium_location, match_date, api_key=None, *, raise_on_error=False):
     """
     Fetch weather conditions for match day using Open-Meteo API (completely free)
     API: https://open-meteo.com/
@@ -210,6 +210,10 @@ def fetch_match_weather(stadium_location, match_date, api_key=None):
             return None
 
     except Exception as e:
+        if raise_on_error:
+            raise RuntimeError(
+                f"weather request failed for {stadium_location} on {match_date}"
+            ) from e
         print(f"Error fetching weather for {stadium_location} on {match_date}: {e}")
         return None
 
@@ -267,6 +271,7 @@ def add_weather_features(df, api_key=None, cache_file='weather_cache.csv', stadi
     new_weather_data = []
     batch_size = 50  # Process in batches to avoid memory issues
 
+    provider_unavailable = False
     for i in range(0, len(weather_requests), batch_size):
         batch = weather_requests[i:i+batch_size]
         print(f"Processing batch {i//batch_size + 1}/{(len(weather_requests)-1)//batch_size + 1}")
@@ -287,7 +292,7 @@ def add_weather_features(df, api_key=None, cache_file='weather_cache.csv', stadi
 
                 # For each stadium on this date, fetch weather
                 for stadium in stadiums:
-                    weather = fetch_match_weather(stadium, date)
+                    weather = fetch_match_weather(stadium, date, raise_on_error=True)
                     if weather:
                         # Apply to all matches at this stadium on this date
                         for req in requests:
@@ -298,8 +303,11 @@ def add_weather_features(df, api_key=None, cache_file='weather_cache.csv', stadi
                                 new_weather_data.append(weather_entry)
 
             except Exception as e:
-                print(f"Error processing date {date}: {e}")
-                continue
+                print(f"Weather provider unavailable; using cached/default values: {e}")
+                provider_unavailable = True
+                break
+        if provider_unavailable:
+            break
 
     # Save new weather data to cache
     if new_weather_data:

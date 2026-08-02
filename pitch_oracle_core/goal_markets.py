@@ -7,7 +7,7 @@ consumer can use the same market contract, regardless of its xG data provider.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import exp, factorial
+from math import exp, factorial, isfinite
 
 
 @dataclass(frozen=True)
@@ -48,6 +48,8 @@ class GoalMarketProbabilities:
 
 
 def _validate_expected_goals(home_expected_goals: float, away_expected_goals: float) -> None:
+    if not isfinite(home_expected_goals) or not isfinite(away_expected_goals):
+        raise ValueError("expected goals must be finite")
     if home_expected_goals < 0 or away_expected_goals < 0:
         raise ValueError("expected goals cannot be negative")
 

@@ -1,5 +1,5 @@
 # optimize_model.py
-from sklearn.model_selection import RandomizedSearchCV, GridSearchCV
+from sklearn.model_selection import RandomizedSearchCV, TimeSeriesSplit
 from xgboost import XGBClassifier
 import numpy as np
 
@@ -16,18 +16,22 @@ def optimize_xgboost(X_train, y_train):
         'gamma': [0, 0.1, 0.2]
     }
 
-    xgb = XGBClassifier(random_state=42)
+    xgb = XGBClassifier(
+        objective='multi:softprob', eval_metric='mlogloss', random_state=42,
+        n_jobs=1,
+    )
 
     # Randomized search (faster than grid search) - REDUCED for Streamlit performance
     random_search = RandomizedSearchCV(
         xgb,
         param_distributions=param_grid,
         n_iter=10,  # Reduced from 50 to 10 for faster startup
-        scoring='accuracy',
-        cv=3,  # Reduced from 5 to 3 folds
+        scoring='neg_log_loss',
+        cv=TimeSeriesSplit(n_splits=3),
         verbose=1,
-        n_jobs=-1,
-        random_state=42
+        n_jobs=1,
+        random_state=42,
+        error_score='raise',
     )
 
     random_search.fit(X_train, y_train)

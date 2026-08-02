@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.12"]
+        python-version: ["3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +23,7 @@ jobs:
       - name: Install CI dependencies
         run: |
           python -m pip install --upgrade pip
+          python -m pip install build
           python -m pip install -r requirements-ci.txt
 
       - name: Compile Python sources
@@ -30,3 +31,11 @@ jobs:
 
       - name: Run tests
         run: python -m pytest -q
+
+      - name: Build wheel
+        run: python -m build --wheel
+
+      - name: Verify wheel installation and public imports
+        run: |
+          python -m pip install --force-reinstall --no-deps dist/*.whl
+          python -c "import pitch_oracle_core; from pitch_oracle_core import FeatureContract, run_app; print(pitch_oracle_core.__version__)"

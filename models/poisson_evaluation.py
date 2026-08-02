@@ -6,54 +6,84 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, accuracy_sc
 from .poisson_predictor import PoissonPredictor
 
 
+def walk_forward_expectations(df: pd.DataFrame, prior_rate: float = 1.4) -> tuple[np.ndarray, np.ndarray, list[tuple[float, float, float]]]:
+    """Generate point-in-time Poisson forecasts, updating rates after each match."""
+    required = {
+        'HomeTeam', 'AwayTeam', 'FullTimeHomeGoals', 'FullTimeAwayGoals',
+    }
+    missing = required.difference(df.columns)
+    if missing:
+        raise ValueError(f"Missing required columns: {', '.join(sorted(missing))}")
+
+    working = df.copy()
+    if 'MatchDate' in working.columns:
+        working['_evaluation_date'] = pd.to_datetime(working['MatchDate'], errors='coerce')
+        working = working.sort_values('_evaluation_date', kind='stable')
+
+    home_for: dict[str, list[float]] = {}
+    home_against: dict[str, list[float]] = {}
+    away_for: dict[str, list[float]] = {}
+    away_against: dict[str, list[float]] = {}
+    total_goals = 0.0
+    matches_seen = 0
+    predictor = PoissonPredictor()
+    home_expected, away_expected, outcome_probabilities = [], [], []
+
+    def average(store: dict[str, list[float]], team: str, fallback: float) -> float:
+        total, count = store.get(team, [0.0, 0.0])
+        return total / count if count else fallback
+
+    def update(store: dict[str, list[float]], team: str, value: float) -> None:
+        totals = store.setdefault(team, [0.0, 0.0])
+        totals[0] += value
+        totals[1] += 1
+
+    for _, row in working.iterrows():
+        home, away = str(row['HomeTeam']), str(row['AwayTeam'])
+        league_rate = total_goals / (2 * matches_seen) if matches_seen else prior_rate
+        predictor.league_avg_goals = league_rate
+        home_rate, away_rate = predictor.estimate_goals(
+            average(home_for, home, league_rate),
+            average(home_against, home, league_rate),
+            average(away_for, away, league_rate),
+            average(away_against, away, league_rate),
+        )
+        scorelines = predictor.poisson_scoreline_probabilities(home_rate, away_rate, max_goals=10)
+        home_expected.append(home_rate)
+        away_expected.append(away_rate)
+        outcome_probabilities.append(predictor.predict_match_outcome(scorelines))
+
+        home_goals = float(row['FullTimeHomeGoals'])
+        away_goals = float(row['FullTimeAwayGoals'])
+        update(home_for, home, home_goals)
+        update(home_against, home, away_goals)
+        update(away_for, away, away_goals)
+        update(away_against, away, home_goals)
+        total_goals += home_goals + away_goals
+        matches_seen += 1
+
+    return np.asarray(home_expected), np.asarray(away_expected), outcome_probabilities
+
+
 def evaluate_poisson_dataframe(df: pd.DataFrame) -> dict:
     """Evaluate a PoissonPredictor on a historical dataframe.
 
     Args:
-        df: DataFrame containing at least the following columns:
-            ['HomeTeam','AwayTeam','HomeGoalsAve','AwayGoalsAve',
-             'FullTimeHomeGoals','FullTimeAwayGoals','FullTimeResult']
+        df: Historical matches containing teams, final goals, and result.
 
     Returns:
         dict with keys:
             league_avg, home_mae, away_mae, home_rmse, away_rmse,
             outcome_acc, brier_home, brier_draw, brier_away
     """
-    # Copy to avoid modifying original
-    df = df.copy()
-
-    # compute goals conceded averages if not present
-    if 'HomeGoalsConcededAve' not in df.columns:
-        df['HomeGoalsConcededAve'] = df.groupby('HomeTeam')['FullTimeAwayGoals'].transform('mean')
-    if 'AwayGoalsConcededAve' not in df.columns:
-        df['AwayGoalsConcededAve'] = df.groupby('AwayTeam')['FullTimeHomeGoals'].transform('mean')
-
-    # drop rows missing stats
-    required = ['HomeGoalsAve', 'AwayGoalsAve', 'HomeGoalsConcededAve', 'AwayGoalsConcededAve']
-    df = df.dropna(subset=required)
-
-    pred = PoissonPredictor()
+    required = ['HomeTeam', 'AwayTeam', 'FullTimeHomeGoals', 'FullTimeAwayGoals', 'FullTimeResult']
+    df = df.dropna(subset=required).copy()
+    df = df[df['FullTimeResult'].isin({'H', 'D', 'A'})]
+    if 'MatchDate' in df.columns:
+        df['_evaluation_date'] = pd.to_datetime(df['MatchDate'], errors='coerce')
+        df = df.sort_values('_evaluation_date', kind='stable')
     league_avg = (df['FullTimeHomeGoals'] + df['FullTimeAwayGoals']).mean() / 2
-    pred.league_avg_goals = league_avg
-
-    home_exp = []
-    away_exp = []
-    outcome_probs = []
-
-    for _, row in df.iterrows():
-        h_exp, a_exp = pred.estimate_goals(
-            home_attack=row['HomeGoalsAve'],
-            home_defense=row['HomeGoalsConcededAve'],
-            away_attack=row['AwayGoalsAve'],
-            away_defense=row['AwayGoalsConcededAve'],
-        )
-        home_exp.append(h_exp)
-        away_exp.append(a_exp)
-        score_mat = pred.poisson_scoreline_probabilities(h_exp, a_exp, max_goals=10)
-        outcome_probs.append(pred.predict_match_outcome(score_mat))
-
-    home_exp = np.array(home_exp)
-    away_exp = np.array(away_exp)
+    home_exp, away_exp, outcome_probs = walk_forward_expectations(df)
     pred_outcome = np.argmax(np.vstack(outcome_probs), axis=1)
 
     y_home = df['FullTimeHomeGoals'].values

@@ -8,7 +8,8 @@ from xgboost import XGBClassifier
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import VotingClassifier
-import numpy as np
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 
 def create_ensemble_model():
@@ -17,26 +18,36 @@ def create_ensemble_model():
     # Individual models
     xgb = XGBClassifier(
         n_estimators=200,
-        max_depth=6,
-        learning_rate=0.1,
-        random_state=42
+        max_depth=4,
+        learning_rate=0.05,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        objective='multi:softprob',
+        eval_metric='mlogloss',
+        random_state=42,
+        n_jobs=1,
     )
 
     rf = RandomForestClassifier(
         n_estimators=200,
         max_depth=8,
-        random_state=42
+        min_samples_leaf=5,
+        class_weight='balanced_subsample',
+        random_state=42,
+        n_jobs=1,
     )
 
     gb = GradientBoostingClassifier(
         n_estimators=150,
-        max_depth=5,
-        random_state=42
+        max_depth=3,
+        learning_rate=0.05,
+        min_samples_leaf=5,
+        random_state=42,
     )
 
-    lr = LogisticRegression(
-        max_iter=1000,
-        random_state=42
+    lr = make_pipeline(
+        StandardScaler(),
+        LogisticRegression(max_iter=1000, class_weight='balanced', random_state=42, n_jobs=1),
     )
 
     # Voting ensemble (soft voting for probabilities)
@@ -48,7 +59,8 @@ def create_ensemble_model():
             ('lr', lr)
         ],
         voting='soft',
-        weights=[2, 1.5, 1, 0.5]  # Higher weight for XGB
+        weights=[1, 1, 1, 1],
+        n_jobs=1,
     )
 
     return ensemble
@@ -59,14 +71,22 @@ def create_simple_ensemble():
     xgb = XGBClassifier(
         n_estimators=100,
         max_depth=4,
-        learning_rate=0.1,
-        random_state=42
+        learning_rate=0.05,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        objective='multi:softprob',
+        eval_metric='mlogloss',
+        random_state=42,
+        n_jobs=1,
     )
 
     rf = RandomForestClassifier(
         n_estimators=100,
         max_depth=6,
-        random_state=42
+        min_samples_leaf=5,
+        class_weight='balanced_subsample',
+        random_state=42,
+        n_jobs=1,
     )
 
     # Simple ensemble with just XGBoost and Random Forest
@@ -76,7 +96,8 @@ def create_simple_ensemble():
             ('rf', rf)
         ],
         voting='soft',
-        weights=[2, 1]  # Higher weight for XGB
+        weights=[1, 1],
+        n_jobs=1,
     )
 
     return ensemble

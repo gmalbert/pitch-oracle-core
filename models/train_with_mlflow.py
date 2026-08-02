@@ -22,9 +22,7 @@ import mlflow.sklearn
 import mlflow.xgboost
 from pathlib import Path
 from os import path
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, mean_absolute_error, f1_score
-from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import accuracy_score, f1_score, log_loss
 from xgboost import XGBClassifier
 
 # Ensure imports resolve from project root
@@ -33,6 +31,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 os.chdir(PROJECT_ROOT)
 
 from models.ensemble_predictor import create_simple_ensemble
+from pitch_oracle_core.features import chronological_split_indices, prematch_feature_columns
 
 DATA_DIR = 'data_files/'
 MODELS_DIR = 'models/'
@@ -52,47 +51,29 @@ def load_and_preprocess_data():
         raise FileNotFoundError(f"Processed data not found: {csv_path}")
 
     df = pd.read_csv(csv_path, sep='\t')
-    df.columns = (df.columns
-                  .str.replace('<', '_').str.replace('>', '_')
-                  .str.replace('[', '_').str.replace(']', '_'))
-
     target_map = {'H': 0, 'D': 1, 'A': 2}
-    y = df['FullTimeResult'].map(target_map)
-
-    exclude_cols = [
-        'FullTimeResult', 'FullTimeHomeGoals', 'FullTimeAwayGoals',
-        'HalfTimeResult', 'HalfTimeHomeGoals', 'HalfTimeAwayGoals',
-        'HomeWin', 'AwayWin', 'Draw', 'WinningTeam',
-        'HomePoints', 'AwayPoints', 'HomeTeamCumulativePoints', 'AwayTeamCumulativePoints',
-        'MatchDate', 'KickoffTime', 'Season', 'Round', 'Venue', 'Referee',
-        'HomeTeam', 'AwayTeam', 'Division',
-    ]
-
-    X_numeric = df.select_dtypes(include=[np.number]).drop(columns=exclude_cols, errors='ignore')
-    cat_cols = df.select_dtypes(include=['object']).columns
-    X_categorical = pd.DataFrame()
-    for col in cat_cols:
-        if col not in exclude_cols:
-            le = LabelEncoder()
-            X_categorical[col] = le.fit_transform(df[col].astype(str))
-
-    X = pd.concat([X_numeric, X_categorical], axis=1).fillna(0)
+    valid = df['FullTimeResult'].isin(target_map) & pd.to_datetime(df['MatchDate'], errors='coerce').notna()
+    df = df.loc[valid].copy()
+    y = df['FullTimeResult'].map(target_map).to_numpy()
+    dates = pd.to_datetime(df['MatchDate']).to_numpy()
+    features = df[prematch_feature_columns(df)]
+    X = features.select_dtypes(include=[np.number]).copy()
     X.columns = [f'feature_{i}' for i in range(X.shape[1])]
-    return X.values, y.values
+    return X, y, dates
 
 
 # ── Training helpers ──────────────────────────────────────────────────────────
 
-def _log_metrics(y_true, y_pred, prefix=''):
+def _log_metrics(y_true, y_pred, y_probability, prefix=''):
     acc = accuracy_score(y_true, y_pred)
-    mae = mean_absolute_error(y_true, y_pred)
     f1  = f1_score(y_true, y_pred, average='weighted')
+    probability_loss = log_loss(y_true, y_probability, labels=[0, 1, 2])
     mlflow.log_metrics({
         f'{prefix}accuracy': acc,
-        f'{prefix}mae': mae,
         f'{prefix}f1': f1,
+        f'{prefix}log_loss': probability_loss,
     })
-    return acc, mae, f1
+    return acc, probability_loss, f1
 
 
 def train_xgboost(X_train, X_test, y_train, y_test, params: dict | None = None):
@@ -105,9 +86,11 @@ def train_xgboost(X_train, X_test, y_train, y_test, params: dict | None = None):
         mlflow.log_params(default_params)
         model = XGBClassifier(**default_params)
         model.fit(X_train, y_train)
-        acc, mae, f1 = _log_metrics(y_test, model.predict(X_test), prefix='test_')
+        acc, probability_loss, f1 = _log_metrics(
+            y_test, model.predict(X_test), model.predict_proba(X_test), prefix='test_'
+        )
         mlflow.xgboost.log_model(model, artifact_path='xgb_model')
-        print(f"  XGBoost  acc={acc:.3f}  mae={mae:.3f}  f1={f1:.3f}")
+        print(f"  XGBoost  acc={acc:.3f}  log_loss={probability_loss:.3f}  f1={f1:.3f}")
     return model
 
 
@@ -116,9 +99,11 @@ def train_ensemble(X_train, X_test, y_train, y_test):
     with mlflow.start_run(run_name='ensemble', nested=True):
         model = create_simple_ensemble()
         model.fit(X_train, y_train)
-        acc, mae, f1 = _log_metrics(y_test, model.predict(X_test), prefix='test_')
+        acc, probability_loss, f1 = _log_metrics(
+            y_test, model.predict(X_test), model.predict_proba(X_test), prefix='test_'
+        )
         mlflow.sklearn.log_model(model, artifact_path='ensemble_model')
-        print(f"  Ensemble acc={acc:.3f}  mae={mae:.3f}  f1={f1:.3f}")
+        print(f"  Ensemble acc={acc:.3f}  log_loss={probability_loss:.3f}  f1={f1:.3f}")
     return model
 
 
@@ -126,10 +111,13 @@ def train_ensemble(X_train, X_test, y_train, y_test):
 
 def run_tracked_training():
     print("Loading data...")
-    X, y = load_and_preprocess_data()
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
+    X, y, dates = load_and_preprocess_data()
+    train_indices, test_indices = chronological_split_indices(dates, test_size=0.2)
+    X_train_frame, X_test_frame = X.iloc[train_indices].copy(), X.iloc[test_indices].copy()
+    train_means = X_train_frame.mean().fillna(0.0)
+    X_train = X_train_frame.fillna(train_means).fillna(0.0).to_numpy()
+    X_test = X_test_frame.fillna(train_means).fillna(0.0).to_numpy()
+    y_train, y_test = y[train_indices], y[test_indices]
     print(f"  Train: {X_train.shape}  Test: {X_test.shape}")
 
     os.makedirs(MODELS_DIR, exist_ok=True)

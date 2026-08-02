@@ -1,15 +1,38 @@
-"""Basic unit test for the Poisson evaluation functionality."""
+"""Basic unit tests for the Poisson evaluation functionality."""
+
 import math
-import os
+
+import pandas as pd
 import pytest
-from models.poisson_evaluation import evaluate_poisson_file
 
-if not os.path.exists('data_files/combined_historical_data_with_calculations.csv'):
-    pytest.skip('EPL generated fixtures belong in the consuming league repository', allow_module_level=True)
+from models.poisson_evaluation import evaluate_poisson_file, walk_forward_expectations
 
 
-def test_poisson_metrics_exist():
-    metrics = evaluate_poisson_file('data_files/combined_historical_data_with_calculations.csv')
+def test_walk_forward_forecasts_do_not_see_future_results():
+    base = pd.DataFrame([
+        {"MatchDate": "2025-01-01", "HomeTeam": "A", "AwayTeam": "B", "FullTimeHomeGoals": 1, "FullTimeAwayGoals": 0},
+        {"MatchDate": "2025-01-02", "HomeTeam": "B", "AwayTeam": "A", "FullTimeHomeGoals": 1, "FullTimeAwayGoals": 1},
+        {"MatchDate": "2025-01-03", "HomeTeam": "A", "AwayTeam": "B", "FullTimeHomeGoals": 2, "FullTimeAwayGoals": 0},
+    ])
+    changed_future = base.copy()
+    changed_future.loc[2, ["FullTimeHomeGoals", "FullTimeAwayGoals"]] = [0, 8]
+
+    original_home, original_away, _ = walk_forward_expectations(base)
+    changed_home, changed_away, _ = walk_forward_expectations(changed_future)
+
+    assert original_home.tolist() == pytest.approx(changed_home.tolist())
+    assert original_away.tolist() == pytest.approx(changed_away.tolist())
+
+def test_poisson_metrics_exist(tmp_path):
+    matches = pd.DataFrame([
+        {"MatchDate": "2025-01-01", "HomeTeam": "A", "AwayTeam": "B", "FullTimeHomeGoals": 1, "FullTimeAwayGoals": 0, "FullTimeResult": "H"},
+        {"MatchDate": "2025-01-02", "HomeTeam": "B", "AwayTeam": "A", "FullTimeHomeGoals": 1, "FullTimeAwayGoals": 1, "FullTimeResult": "D"},
+        {"MatchDate": "2025-01-03", "HomeTeam": "A", "AwayTeam": "B", "FullTimeHomeGoals": 2, "FullTimeAwayGoals": 0, "FullTimeResult": "H"},
+        {"MatchDate": "2025-01-04", "HomeTeam": "B", "AwayTeam": "A", "FullTimeHomeGoals": 0, "FullTimeAwayGoals": 2, "FullTimeResult": "A"},
+    ])
+    fixture = tmp_path / "matches.csv"
+    matches.to_csv(fixture, sep="\t", index=False)
+    metrics = evaluate_poisson_file(str(fixture))
     # Expected keys
     expected = [
         'league_avg', 'home_mae', 'away_mae', 'home_rmse', 'away_rmse',
@@ -28,15 +51,3 @@ def test_poisson_metrics_exist():
     assert 0 <= metrics['brier_home'] <= 1
     assert 0 <= metrics['brier_draw'] <= 1
     assert 0 <= metrics['brier_away'] <= 1
-
-    # history file should exist and have correct columns
-    hist_path = 'data_files/poisson_metrics_history.csv'
-    import os, pandas as pd
-    assert os.path.exists(hist_path), 'History CSV missing'
-    hist = pd.read_csv(hist_path)
-    for col in ['home_mae', 'away_mae', 'home_rmse', 'away_rmse', 'outcome_acc']:
-        assert col in hist.columns
-    # last entry should be non-negative
-    last = hist.iloc[-1]
-    assert last['home_mae'] >= 0
-    assert last['away_mae'] >= 0

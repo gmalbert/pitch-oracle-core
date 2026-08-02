@@ -7,9 +7,7 @@ import pickle
 import warnings
 from os import path
 from xgboost import XGBClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, accuracy_score
-from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import accuracy_score, log_loss
 from sklearn.inspection import permutation_importance
 from scipy import stats
 from datetime import datetime
@@ -23,6 +21,19 @@ from models.ensemble_predictor import create_ensemble_model, create_simple_ensem
 from models.poisson_predictor import predict_match_poisson
 from models.poisson_evaluation import evaluate_poisson_file
 from pitch_oracle_core.cache import validate_cache
+from pitch_oracle_core.features import (
+    FEATURE_POLICY_VERSION,
+    chronological_split_indices,
+    prematch_feature_columns,
+)
+from pitch_oracle_core.risk import (
+    HIGH_RISK_MAX,
+    LOW_RISK_MAX,
+    MODERATE_RISK_MAX,
+    calculate_prediction_risk,
+    get_prediction_guidance,
+    get_risk_category,
+)
 from sklearn.calibration import CalibratedClassifierCV, calibration_curve
 from sklearn.model_selection import TimeSeriesSplit
 import plotly.graph_objects as go
@@ -140,7 +151,8 @@ LEAGUE_NAME = os.getenv('PITCH_ORACLE_DISPLAY_NAME', 'Premier League')
 CACHE_ONLY = os.getenv('PITCH_ORACLE_CACHE_ONLY', '1').lower() in {'1', 'true', 'yes', 'on'}
 
 if CACHE_ONLY:
-    validate_cache()
+    for cache_warning in validate_cache(strict_contract=False):
+        st.warning(f"⚠️ {cache_warning}. Rebuild artifacts before relying on new model metrics.")
 
 st.set_page_config(page_title=f"Pitch Oracle - {LEAGUE_NAME}", layout="wide", page_icon="⚽")
 
@@ -382,6 +394,17 @@ def load_precomputed_data():
         try:
             with open(precomputed_path, 'rb') as f:
                 data = pickle.load(f)
+            artifact_policy = data.get('metadata', {}).get('feature_policy_version')
+            if artifact_policy != FEATURE_POLICY_VERSION:
+                message = (
+                    f"Precomputed data uses feature policy {artifact_policy!r}; "
+                    f"version {FEATURE_POLICY_VERSION} is required. Regenerate the model artifacts."
+                )
+                if CACHE_ONLY:
+                    st.warning(f"⚠️ {message} Loading legacy artifacts in compatibility mode.")
+                    return data
+                print(f"⚠️  {message}")
+                return None
             print("✅ Loaded precomputed data for fast startup")
             return data
         except Exception as e:
@@ -394,6 +417,30 @@ def load_precomputed_data():
             "Run the GitHub Actions precompute job before deploying."
         )
     return None
+
+
+def restore_feature_names(df, feature_names):
+    """Map positional model names back to the source dataframe columns.
+
+    Precomputed artifacts intentionally use feature_0, feature_1, ... for model
+    compatibility. The UI should still show the analyst-facing source names.
+    """
+    if not feature_names or not all(str(name).startswith('feature_') for name in feature_names):
+        return feature_names
+
+    drop_cols = {
+        'FullTimeResult', 'FullTimeHomeGoals', 'FullTimeAwayGoals',
+        'HalfTimeResult', 'HalfTimeHomeGoals', 'HalfTimeAwayGoals',
+        'HomeWin', 'AwayWin', 'Draw', 'WinningTeam',
+        'HomePoints', 'AwayPoints', 'HomeTeamCumulativePoints', 'AwayTeamCumulativePoints',
+        'MatchDate', 'KickoffTime', 'Season', 'Round', 'Venue', 'Referee',
+        'HomeTeam', 'AwayTeam', 'Division', 'target',
+    }
+    source_columns = [column for column in df.columns if column not in drop_cols]
+    numeric_columns = df[source_columns].select_dtypes(include=[np.number]).columns.tolist()
+    categorical_columns = df[source_columns].select_dtypes(include=['object']).columns.tolist()
+    restored = numeric_columns + categorical_columns
+    return restored if len(restored) == len(feature_names) else feature_names
 
 
 def is_feature_shape_compatible(model, X):
@@ -580,46 +627,26 @@ def load_and_process_data(csv_path):
     df = df[df['FullTimeResult'].isin(target_map.keys())].copy()
     df['target'] = df['FullTimeResult'].map(target_map)
 
-    # Drop columns not useful for modeling or that leak the result
-    drop_cols = [
-        'FullTimeResult', 'FullTimeHomeGoals', 'FullTimeAwayGoals',
-        'HalfTimeResult', 'HalfTimeHomeGoals', 'HalfTimeAwayGoals',
-        'HomeWin', 'AwayWin', 'Draw', 'WinningTeam',
-        'HomePoints', 'AwayPoints', 'HomeTeamCumulativePoints', 'AwayTeamCumulativePoints',
-        'MatchDate', 'KickoffTime', 'Season', 'Round', 'Venue', 'Referee',
-        'HomeTeam', 'AwayTeam', 'Division'
-    ]
-    X = df.drop(columns=[col for col in drop_cols if col in df.columns] + ['target'], errors='ignore')
+    dates = pd.to_datetime(df['MatchDate'], errors='coerce')
+    valid_dates = dates.notna()
+    df, dates = df.loc[valid_dates].copy(), dates.loc[valid_dates]
     y = df['target']
+    X = df[prematch_feature_columns(df)]
 
     # Get numeric features only
-    X_numeric = X.select_dtypes(include=[np.number]).drop(columns=drop_cols, errors='ignore')
-
-    # Handle categorical columns by encoding them
-    cat_cols = X.select_dtypes(include=['object']).columns
-    X_categorical = pd.DataFrame()
-    for col in cat_cols:
-        if col not in drop_cols:
-            le = LabelEncoder()
-            X_categorical[col] = le.fit_transform(X[col].astype(str))
-
-    # Combine numeric and categorical features
-    X = pd.concat([X_numeric, X_categorical], axis=1)
-
-    # Fill any remaining NaN values
-    X = X.fillna(X.mean())
+    X = X.select_dtypes(include=[np.number]).copy()
+    feature_names = X.columns.tolist()
 
     # Ensure X is a DataFrame with clean column names
     if isinstance(X, pd.DataFrame):
         # Reset column names to generic names to avoid XGBoost issues
         X.columns = [f'feature_{i}' for i in range(X.shape[1])]
-        feature_names = X.columns.tolist()  # Store feature names for later use
-
-    # Convert to numpy array to ensure compatibility with XGBoost
-    X = X.values
-
-    # --- Train/Test Split ---
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    train_indices, test_indices = chronological_split_indices(dates, test_size=0.2)
+    train_means = X.iloc[train_indices].mean().fillna(0.0)
+    X = X.fillna(train_means).fillna(0.0).values
+    y = y.to_numpy()
+    X_train, X_test = X[train_indices], X[test_indices]
+    y_train, y_test = y[train_indices], y[test_indices]
     
     print("✅ Data processed and cached")
     return X_train, X_test, y_train, y_test, feature_names, df
@@ -631,6 +658,7 @@ if not path.exists(csv_path):
 
 # Load and process data (cached after first run)
 X_train, X_test, y_train, y_test, feature_names, df = load_and_process_data(csv_path)
+feature_names = restore_feature_names(df, feature_names)
 
 # Reconstruct full datasets for parts of the app that need them
 X = np.concatenate([X_train, X_test])
@@ -668,13 +696,13 @@ if pretrained_models:
 if use_pretrained:
     # Get performance metrics
     xgb_acc = performance.get('xgb_baseline', {}).get('accuracy', 0)
-    xgb_mae = performance.get('xgb_baseline', {}).get('mae', 0)
+    xgb_log_loss = performance.get('xgb_baseline', {}).get('log_loss', float('nan'))
     ensemble_acc = performance.get('ensemble', {}).get('accuracy', 0)
-    ensemble_mae = performance.get('ensemble', {}).get('mae', 0)
+    ensemble_log_loss = performance.get('ensemble', {}).get('log_loss', float('nan'))
     neural_acc = performance.get('neural', {}).get('accuracy', 0) if neural_model else 0
-    neural_mae = performance.get('neural', {}).get('mae', 0) if neural_model else 0
+    neural_log_loss = performance.get('neural', {}).get('log_loss', float('nan')) if neural_model else float('nan')
     opt_xgb_acc = performance.get('optimized_xgb', {}).get('accuracy', 0) if optimized_xgb_model else 0
-    opt_xgb_mae = performance.get('optimized_xgb', {}).get('mae', 0) if optimized_xgb_model else 0
+    opt_xgb_log_loss = performance.get('optimized_xgb', {}).get('log_loss', float('nan')) if optimized_xgb_model else float('nan')
 
     # Generate predictions for feature importance (using test set)
     xgb_pred = xgb_model.predict(X_test)
@@ -695,45 +723,50 @@ else:
     xgb_model = XGBClassifier(eval_metric='mlogloss', random_state=42)
     xgb_model.fit(X_train, y_train)
     xgb_pred = xgb_model.predict(X_test)
-    xgb_mae = mean_absolute_error(y_test, xgb_pred)
+    xgb_log_loss = log_loss(y_test, xgb_model.predict_proba(X_test), labels=[0, 1, 2])
     xgb_acc = accuracy_score(y_test, xgb_pred)
 
     # Train Ensemble model
     ensemble_model = create_simple_ensemble()
     ensemble_model.fit(X_train, y_train)
     ensemble_pred = ensemble_model.predict(X_test)
-    ensemble_mae = mean_absolute_error(y_test, ensemble_pred)
+    ensemble_log_loss = log_loss(y_test, ensemble_model.predict_proba(X_test), labels=[0, 1, 2])
     ensemble_acc = accuracy_score(y_test, ensemble_pred)
 
     # Initialize variables for optional models
     neural_model = None
     neural_scaler = None
     optimized_xgb_model = None
-    neural_acc = neural_mae = opt_xgb_acc = opt_xgb_mae = 0
+    neural_acc = opt_xgb_acc = 0
+    neural_log_loss = opt_xgb_log_loss = float('nan')
 
 # Initialize session state for expensive model results
 if 'optimized_available' not in st.session_state:
     st.session_state.optimized_available = optimized_xgb_model is not None
-    st.session_state.opt_xgb_mae = opt_xgb_mae
+if 'opt_xgb_log_loss' not in st.session_state:
+    st.session_state.opt_xgb_log_loss = opt_xgb_log_loss
+if 'opt_xgb_acc' not in st.session_state:
     st.session_state.opt_xgb_acc = opt_xgb_acc
 
 if 'neural_available' not in st.session_state:
     st.session_state.neural_available = neural_model is not None
-    st.session_state.neural_mae = neural_mae
+if 'neural_log_loss' not in st.session_state:
+    st.session_state.neural_log_loss = neural_log_loss
+if 'neural_acc' not in st.session_state:
     st.session_state.neural_acc = neural_acc
 
 # Use session state values
 optimized_available = st.session_state.optimized_available
-opt_xgb_mae = st.session_state.opt_xgb_mae
+opt_xgb_log_loss = st.session_state.opt_xgb_log_loss
 opt_xgb_acc = st.session_state.opt_xgb_acc
 neural_available = st.session_state.neural_available
-neural_mae = st.session_state.neural_mae
+neural_log_loss = st.session_state.neural_log_loss
 neural_acc = st.session_state.neural_acc
 
 # Use ensemble as the main model for predictions
 model = ensemble_model
 y_pred = ensemble_pred
-mae = ensemble_mae
+probability_loss = ensemble_log_loss
 acc = ensemble_acc
 
 model_trained = True
@@ -773,7 +806,7 @@ with tab1:
 
             st.subheader("🗓️ Upcoming Premier League Fixtures")
             st.write("*Times shown in Eastern Time (ET)*")
-            if st.button("🔄 Refresh Upcoming Fixtures", use_container_width=False):
+            if st.button("🔄 Refresh Upcoming Fixtures", width="content"):
                 with st.spinner("Fetching latest fixtures..."):
                     result = subprocess.run(
                         ['python', 'fetch_upcoming_fixtures.py'],
@@ -872,9 +905,9 @@ with tab2:
 
     with col2:
         st.metric(
-            label="Mean Absolute Error",
-            value=f"{mae:.3f}",
-            delta=f"{0.67 - mae:.3f} vs baseline"
+            label="Multiclass Log Loss",
+            value=f"{probability_loss:.3f}",
+            help="Lower is better; this evaluates the quality of all three outcome probabilities."
         )
 
     with col3:
@@ -898,10 +931,12 @@ with tab2:
                 try:
                     optimized_xgb_model = optimize_xgboost(X_train, y_train)
                     opt_xgb_pred = optimized_xgb_model.predict(X_test)
-                    st.session_state.opt_xgb_mae = mean_absolute_error(y_test, opt_xgb_pred)
+                    st.session_state.opt_xgb_log_loss = log_loss(
+                        y_test, optimized_xgb_model.predict_proba(X_test), labels=[0, 1, 2]
+                    )
                     st.session_state.opt_xgb_acc = accuracy_score(y_test, opt_xgb_pred)
                     st.session_state.optimized_available = True
-                    st.success(f"✅ Optimization complete! Accuracy: {st.session_state.opt_xgb_acc:.3f}, MAE: {st.session_state.opt_xgb_mae:.3f}")
+                    st.success(f"✅ Optimization complete! Accuracy: {st.session_state.opt_xgb_acc:.3f}, log loss: {st.session_state.opt_xgb_log_loss:.3f}")
                     st.rerun()  # Refresh the page to update the comparison table
                 except Exception as e:
                     st.error(f"❌ Optimization failed: {e}")
@@ -921,10 +956,12 @@ with tab2:
                     neural_model, neural_scaler = train_neural_model(X_train, y_train, epochs=50, batch_size=32)
                     neural_pred_proba = predict_neural(neural_model, neural_scaler, X_test)
                     neural_pred = np.argmax(neural_pred_proba, axis=1)
-                    st.session_state.neural_mae = mean_absolute_error(y_test, neural_pred)
+                    st.session_state.neural_log_loss = log_loss(
+                        y_test, neural_pred_proba, labels=[0, 1, 2]
+                    )
                     st.session_state.neural_acc = accuracy_score(y_test, neural_pred)
                     st.session_state.neural_available = True
-                    st.success(f"✅ Neural network trained! Accuracy: {st.session_state.neural_acc:.3f}, MAE: {st.session_state.neural_mae:.3f}")
+                    st.success(f"✅ Neural network trained! Accuracy: {st.session_state.neural_acc:.3f}, log loss: {st.session_state.neural_log_loss:.3f}")
                     st.rerun()  # Refresh the page to update the comparison table
                 except Exception as e:
                     st.error(f"❌ Neural network training failed: {e}")
@@ -953,24 +990,24 @@ with tab2:
 
     # Create comparison dataframe
     model_names = ['XGBoost (Baseline)', 'Ensemble (Current)']
-    mae_values = [xgb_mae, ensemble_mae]
+    loss_values = [xgb_log_loss, ensemble_log_loss]
     acc_values = [xgb_acc, ensemble_acc]
 
     if optimized_available:
         model_names.insert(1, 'XGBoost (Optimized)')
-        mae_values.insert(1, opt_xgb_mae)
+        loss_values.insert(1, opt_xgb_log_loss)
         acc_values.insert(1, opt_xgb_acc)
 
     if neural_available:
         model_names.append('Neural Network (PyTorch)')
-        mae_values.append(neural_mae)
+        loss_values.append(neural_log_loss)
         acc_values.append(neural_acc)
 
     performance_data = {
         'Model': model_names,
-        'MAE': mae_values,
+        'Log Loss': loss_values,
         'Accuracy': acc_values,
-        'MAE Change': [0] + [mae - xgb_mae for mae in mae_values[1:]],
+        'Log Loss Change': [0] + [loss - xgb_log_loss for loss in loss_values[1:]],
         'Accuracy Change': [0] + [acc - xgb_acc for acc in acc_values[1:]]
     }
 
@@ -981,10 +1018,10 @@ with tab2:
 
     with col1:
         st.metric(
-            "Mean Absolute Error (MAE)",
-            f"{mae:.3f}",
-            f"{(ensemble_mae - xgb_mae):+.3f} vs XGBoost",
-            delta_color="inverse"  # Lower MAE is better (inverse)
+            "Multiclass Log Loss",
+            f"{probability_loss:.3f}",
+            f"{(ensemble_log_loss - xgb_log_loss):+.3f} vs XGBoost",
+            delta_color="inverse"
         )
 
     with col2:
@@ -998,9 +1035,9 @@ with tab2:
     # Detailed comparison table
     st.subheader("Model Comparison Details")
     styled_df = perf_df.style.format({
-        'MAE': '{:.3f}',
+        'Log Loss': '{:.3f}',
         'Accuracy': '{:.3f}',
-        'MAE Change': '{:+.3f}',
+        'Log Loss Change': '{:+.3f}',
         'Accuracy Change': '{:+.3f}'
     })
 
@@ -1013,26 +1050,26 @@ with tab2:
     st.dataframe(styled_df, hide_index=True, height=get_dataframe_height(styled_df.data), width=600)
 
     # Performance interpretation
-    mae_improvement = xgb_mae - ensemble_mae
+    loss_improvement = xgb_log_loss - ensemble_log_loss
     acc_improvement = ensemble_acc - xgb_acc
 
-    st.success(f"✅ **Ensemble Model Improvement:** MAE reduced by {mae_improvement:.3f}, Accuracy improved by {acc_improvement:.3f}")
+    st.success(f"✅ **Ensemble Model Improvement:** log loss reduced by {loss_improvement:.3f}, accuracy changed by {acc_improvement:+.3f}")
 
     if optimized_available:
-        opt_mae_improvement = xgb_mae - opt_xgb_mae
+        opt_loss_improvement = xgb_log_loss - opt_xgb_log_loss
         opt_acc_improvement = opt_xgb_acc - xgb_acc
-        st.info(f"🔧 **XGBoost Optimization:** MAE reduced by {opt_mae_improvement:.3f}, Accuracy improved by {opt_acc_improvement:.3f}")
+        st.info(f"🔧 **XGBoost Optimization:** log loss reduced by {opt_loss_improvement:.3f}, accuracy changed by {opt_acc_improvement:+.3f}")
 
     if neural_available:
-        neural_mae_improvement = xgb_mae - neural_mae
+        neural_loss_improvement = xgb_log_loss - neural_log_loss
         neural_acc_improvement = neural_acc - xgb_acc
 
         if neural_acc > ensemble_acc:
-            st.success(f"🎉 **Neural Network Best Performer:** MAE reduced by {neural_mae_improvement:.3f}, Accuracy improved by {neural_acc_improvement:.3f}")
+            st.success(f"🎉 **Neural Network Best Performer:** log loss reduced by {neural_loss_improvement:.3f}, accuracy changed by {neural_acc_improvement:+.3f}")
         elif neural_acc >= ensemble_acc * 0.98:  # Within 2% of ensemble
-            st.info(f"🧠 **Neural Network Competitive:** MAE reduced by {neural_mae_improvement:.3f}, Accuracy improved by {neural_acc_improvement:.3f}")
+            st.info(f"🧠 **Neural Network Competitive:** log loss reduced by {neural_loss_improvement:.3f}, accuracy changed by {neural_acc_improvement:+.3f}")
         else:
-            st.info(f"🧠 **Neural Network Trained:** MAE reduced by {neural_mae_improvement:.3f}, Accuracy improved by {neural_acc_improvement:.3f} (Ensemble still better)")
+            st.info(f"🧠 **Neural Network Trained:** log loss reduced by {neural_loss_improvement:.3f}, accuracy changed by {neural_acc_improvement:+.3f} (Ensemble still better)")
     else:
         st.info(
             "🧠 Neural Network is optional and will load only when you select "
@@ -1153,7 +1190,7 @@ with tab2:
             labels={'Importance %': 'Mean Importance (%)'}
         )
         fig_features.update_layout(yaxis={'categoryorder': 'total ascending'}, coloraxis_showscale=False)
-        st.plotly_chart(fig_features, use_container_width=True)
+        st.plotly_chart(fig_features, width="stretch")
         
         # PDF Export Section
         st.markdown("---")
@@ -1166,7 +1203,7 @@ with tab2:
                 with st.spinner("Generating comprehensive PDF report..."):
                     # Prepare data for PDF generation
                     model_metrics = {
-                        'mae': mae,
+                        'log_loss': probability_loss,
                         'accuracy': acc,
                         'total_features': len(importance_df),
                         'significant_features': len(importance_df[importance_df['P_Value'] < 0.05]),
@@ -1209,7 +1246,7 @@ with tab2:
                 with st.spinner("Generating quick PDF summary..."):
                     # Prepare data for quick PDF
                     model_metrics = {
-                        'mae': mae,
+                        'log_loss': probability_loss,
                         'accuracy': acc,
                         'total_features': len(importance_df),
                         'significant_features': len(importance_df[importance_df['P_Value'] < 0.05]),
@@ -1280,15 +1317,15 @@ with tab2:
             for mname, m, scaler in available_models:
                 try:
                     if scaler is not None:
-                        Xs = scaler.transform(X_test)
                         proba = predict_neural(m, scaler, X_test)
                         pred = np.argmax(proba, axis=1)
                     else:
                         pred = m.predict(X_test)
+                        proba = m.predict_proba(X_test)
                     row = {
                         'Model': mname,
                         'Accuracy': accuracy_score(y_test, pred),
-                        'MAE': mean_absolute_error(y_test, pred),
+                        'Log Loss': log_loss(y_test, proba, labels=[0, 1, 2]),
                     }
                     for cls, label in [(0, 'Home Win Acc'), (1, 'Draw Acc'), (2, 'Away Win Acc')]:
                         mask = y_test == cls
@@ -1303,7 +1340,7 @@ with tab2:
                 fig = make_subplots(
                     rows=2, cols=2,
                     subplot_titles=(
-                        'Overall Accuracy', 'MAE (lower is better)',
+                        'Overall Accuracy', 'Log Loss (lower is better)',
                         'Per-Class Accuracy', 'Prediction Distribution'
                     )
                 )
@@ -1314,8 +1351,8 @@ with tab2:
                     row=1, col=1
                 )
                 fig.add_trace(
-                    go.Bar(x=comp_df['Model'], y=comp_df['MAE'],
-                           name='MAE', marker_color='salmon', showlegend=False),
+                    go.Bar(x=comp_df['Model'], y=comp_df['Log Loss'],
+                           name='Log Loss', marker_color='salmon', showlegend=False),
                     row=1, col=2
                 )
                 for cls_col, color in [('Home Win Acc', 'green'), ('Draw Acc', 'gold'), ('Away Win Acc', 'red')]:
@@ -1338,7 +1375,7 @@ with tab2:
                 st.plotly_chart(fig, width='stretch')
                 st.dataframe(
                     comp_df.style.format({
-                        'Accuracy': '{:.3f}', 'MAE': '{:.3f}',
+                        'Accuracy': '{:.3f}', 'Log Loss': '{:.3f}',
                         'Home Win Acc': '{:.3f}', 'Draw Acc': '{:.3f}', 'Away Win Acc': '{:.3f}'
                     }),
                     hide_index=True, width='stretch'
@@ -1358,21 +1395,21 @@ with tab2:
                     st.error("LightGBM and/or CatBoost not installed. Run: pip install lightgbm catboost")
                 else:
                     gb_results = train_gradient_boosting_variants(X_train, y_train, X_test, y_test)
-                    st.session_state['gb_results'] = {k: {'accuracy': v['accuracy'], 'mae': v['mae']} for k, v in gb_results.items()}
+                    st.session_state['gb_results'] = {k: {'accuracy': v['accuracy'], 'log_loss': v['log_loss']} for k, v in gb_results.items()}
                     rows = [
-                        {'Model': k, 'Accuracy': v['accuracy'], 'MAE': v['mae']}
+                        {'Model': k, 'Accuracy': v['accuracy'], 'Log Loss': v['log_loss']}
                         for k, v in gb_results.items()
                     ]
                     gb_df = pd.DataFrame(rows)
                     best_acc = gb_df['Accuracy'].max()
                     delta = best_acc - acc
                     st.success(f"✅ Training complete! Best GB accuracy: {best_acc:.3f} ({delta:+.3f} vs ensemble)")
-                    st.dataframe(gb_df.style.format({'Accuracy': '{:.3f}', 'MAE': '{:.3f}'}), hide_index=True)
+                    st.dataframe(gb_df.style.format({'Accuracy': '{:.3f}', 'Log Loss': '{:.3f}'}), hide_index=True)
             except Exception as e:
                 st.error(f"Training failed: {e}")
     elif 'gb_results' in st.session_state:
         rows = [{'Model': k, **v} for k, v in st.session_state['gb_results'].items()]
-        st.dataframe(pd.DataFrame(rows).style.format({'accuracy': '{:.3f}', 'mae': '{:.3f}'}), hide_index=True)
+        st.dataframe(pd.DataFrame(rows).style.format({'accuracy': '{:.3f}', 'log_loss': '{:.3f}'}), hide_index=True)
 
     # --- Confidence Calibration ---
     st.markdown("---")
@@ -1381,7 +1418,18 @@ with tab2:
     if st.checkbox("Show Calibrated Probability Analysis", key="show_calibration"):
         with st.spinner("Calibrating model probabilities..."):
             try:
-                calibrated_model = CalibratedClassifierCV(ensemble_model, method='sigmoid', cv='prefit')
+                # scikit-learn 1.6+ replaces cv='prefit' with FrozenEstimator.
+                # Keep a compatible fallback for older consumer environments.
+                try:
+                    from sklearn.frozen import FrozenEstimator
+                    calibrated_model = CalibratedClassifierCV(
+                        FrozenEstimator(ensemble_model), method='sigmoid',
+                        cv=3, ensemble=False,
+                    )
+                except ImportError:
+                    calibrated_model = CalibratedClassifierCV(
+                        ensemble_model, method='sigmoid', cv=3
+                    )
                 calibrated_model.fit(X_train, y_train)
                 uncal_proba = ensemble_model.predict_proba(X_test)
                 cal_proba = calibrated_model.predict_proba(X_test)
@@ -1424,7 +1472,29 @@ with tab2:
     st.subheader("🔍 SHAP Feature Analysis")
 
     if st.checkbox("Show SHAP Feature Analysis", key="show_shap"):
-        with st.spinner("Generating SHAP explanations (this may take a moment)..."):
+        diagnostics_dir = os.getenv("PITCH_ORACLE_DIAGNOSTICS_DIR", "precomputed")
+        saved_shap_csv = path.join(diagnostics_dir, "shap_importance.csv")
+        saved_shap_images = [
+            path.join(diagnostics_dir, "shap_overall.png"),
+            path.join(diagnostics_dir, "shap_home_win.png"),
+            path.join(diagnostics_dir, "shap_draw.png"),
+            path.join(diagnostics_dir, "shap_away_win.png"),
+        ]
+        if path.exists(saved_shap_csv) and all(path.exists(image) for image in saved_shap_images):
+            st.caption("Loaded from the latest GitHub Actions model-diagnostics artifact.")
+            st.subheader("Overall Feature Importance (SHAP)")
+            st.image(saved_shap_images[0], width="stretch")
+            shap_tabs = st.tabs(['Home Win', 'Draw', 'Away Win'])
+            for tab, image in zip(shap_tabs, saved_shap_images[1:]):
+                with tab:
+                    st.image(image, width="stretch")
+            saved_shap_df = pd.read_csv(saved_shap_csv)
+            st.dataframe(
+                saved_shap_df.head(20).style.format({'Mean_SHAP': '{:.4f}'}),
+                hide_index=True, width='stretch'
+            )
+        else:
+          with st.spinner("Generating SHAP explanations (this may take a moment)..."):
             try:
                 from models.feature_analysis import analyze_feature_importance_shap, SHAP_AVAILABLE
                 if not SHAP_AVAILABLE:
@@ -1468,22 +1538,23 @@ with tab2:
                     y_te = y[test_idx]
                     xgb_cv.fit(X_tr, y_tr)
                     pred_cv = xgb_cv.predict(X_te)
+                    proba_cv = xgb_cv.predict_proba(X_te)
                     cv_rows.append({
                         'Fold': fold + 1,
                         'Train Size': len(train_idx),
                         'Test Size': len(test_idx),
                         'Accuracy': accuracy_score(y_te, pred_cv),
-                        'MAE': mean_absolute_error(y_te, pred_cv),
+                        'Log Loss': log_loss(y_te, proba_cv, labels=[0, 1, 2]),
                     })
                 cv_df = pd.DataFrame(cv_rows)
-                st.dataframe(cv_df.style.format({'Accuracy': '{:.3f}', 'MAE': '{:.3f}'}), hide_index=True)
+                st.dataframe(cv_df.style.format({'Accuracy': '{:.3f}', 'Log Loss': '{:.3f}'}), hide_index=True)
                 col1, col2 = st.columns(2)
                 with col1:
                     st.metric("Mean CV Accuracy", f"{cv_df['Accuracy'].mean():.3f}",
                               f"±{cv_df['Accuracy'].std():.3f}")
                 with col2:
-                    st.metric("Mean CV MAE", f"{cv_df['MAE'].mean():.3f}",
-                              f"±{cv_df['MAE'].std():.3f}")
+                    st.metric("Mean CV Log Loss", f"{cv_df['Log Loss'].mean():.3f}",
+                              f"±{cv_df['Log Loss'].std():.3f}")
             except Exception as e:
                 st.error(f"Cross-validation failed: {e}")
 
@@ -1575,44 +1646,32 @@ with tab3:
     # that exact order here, substituting each team's rolling average for in-match stats
     # that aren't available before a game is played.
 
-    _drop_cols = [
-        'FullTimeResult', 'FullTimeHomeGoals', 'FullTimeAwayGoals',
-        'HalfTimeResult', 'HalfTimeHomeGoals', 'HalfTimeAwayGoals',
-        'HomeWin', 'AwayWin', 'Draw', 'WinningTeam',
-        'HomePoints', 'AwayPoints', 'HomeTeamCumulativePoints', 'AwayTeamCumulativePoints',
-        'MatchDate', 'KickoffTime', 'Season', 'Round', 'Venue', 'Referee',
-        'HomeTeam', 'AwayTeam', 'Division', 'target'
-    ]
-    _X_for_cols = df.drop(columns=[c for c in _drop_cols if c in df.columns], errors='ignore')
+    _X_for_cols = df[prematch_feature_columns(df)]
     _train_num_cols = list(
-        _X_for_cols.select_dtypes(include=[np.number])
-                   .drop(columns=_drop_cols, errors='ignore')
-                   .columns
+        _X_for_cols.select_dtypes(include=[np.number]).columns
     )
-    _train_cat_cols = [
-        c for c in _X_for_cols.select_dtypes(include=['object']).columns
-        if c not in _drop_cols
-    ]
 
-    # Compute per-team rolling averages from their last 10 home / away games
+    # Use each team's latest point-in-time feature state. The historical rows
+    # already contain rolling features, so averaging those rolling values again
+    # would unnecessarily smooth and stale the live input.
     _df_s = df.copy()
     if 'MatchDate' in _df_s.columns:
         _df_s = _df_s.sort_values('MatchDate')
 
-    _home_avgs = {}
+    _home_states = {}
     for _team in _df_s['HomeTeam'].unique():
-        _tm = _df_s[_df_s['HomeTeam'] == _team].tail(10)
-        _home_avgs[_team] = {
-            c: float(_tm[c].mean()) for c in _train_num_cols
-            if c in _tm.columns and pd.notna(_tm[c].mean())
+        _latest = _df_s[_df_s['HomeTeam'] == _team].iloc[-1]
+        _home_states[_team] = {
+            c: float(_latest[c]) for c in _train_num_cols
+            if c in _latest.index and pd.notna(_latest[c])
         }
 
-    _away_avgs = {}
+    _away_states = {}
     for _team in _df_s['AwayTeam'].unique():
-        _tm = _df_s[_df_s['AwayTeam'] == _team].tail(10)
-        _away_avgs[_team] = {
-            c: float(_tm[c].mean()) for c in _train_num_cols
-            if c in _tm.columns and pd.notna(_tm[c].mean())
+        _latest = _df_s[_df_s['AwayTeam'] == _team].iloc[-1]
+        _away_states[_team] = {
+            c: float(_latest[c]) for c in _train_num_cols
+            if c in _latest.index and pd.notna(_latest[c])
         }
 
     # Global means as a fallback for features that aren't team-prefixed
@@ -1625,15 +1684,14 @@ with tab3:
         _away = _match['AwayTeam']
         _row = []
         for c in _train_num_cols:
-            if c.startswith('Home') and _home in _home_avgs and c in _home_avgs[_home]:
-                _row.append(_home_avgs[_home][c])
-            elif c.startswith('Away') and _away in _away_avgs and c in _away_avgs[_away]:
-                _row.append(_away_avgs[_away][c])
+            if c in _match.index and pd.notna(_match[c]):
+                _row.append(float(_match[c]))
+            elif c.startswith('Home') and _home in _home_states and c in _home_states[_home]:
+                _row.append(_home_states[_home][c])
+            elif c.startswith('Away') and _away in _away_states and c in _away_states[_away]:
+                _row.append(_away_states[_away][c])
             else:
                 _row.append(_global_means.get(c, 0.0))
-        # Categorical features encoded as 0 (minor impact; keeps feature count aligned)
-        for _ in _train_cat_cols:
-            _row.append(0)
         _upcoming_rows.append(_row)
 
     X_upcoming = np.array(_upcoming_rows, dtype=np.float32)
@@ -1807,63 +1865,15 @@ with tab3:
         }
         pred_df = pd.DataFrame(prediction_cols, index=upcoming_df.index)
         upcoming_df = pd.concat([upcoming_df, pred_df], axis=1)
-    def calculate_prediction_risk(home_prob, draw_prob, away_prob):
-        """
-        Calculate prediction risk score (0-100) based on probability distribution.
-        Lower scores = higher confidence, higher scores = higher risk.
-        Adapted from HenryOnilude's variance-based risk scoring.
-        """
-        # Get the maximum probability (most likely outcome)
-        max_prob = max(home_prob, draw_prob, away_prob)
-
-        # Calculate entropy as a measure of uncertainty
-        # Higher entropy = more evenly distributed probabilities = higher risk
-        probs = np.array([home_prob, draw_prob, away_prob])
-        # Add small epsilon to avoid log(0)
-        probs = np.clip(probs, 1e-10, 1.0)
-        entropy = -np.sum(probs * np.log(probs))
-
-        # Normalize entropy to 0-1 scale (max entropy for 3 outcomes is log(3) ≈ 1.099)
-        normalized_entropy = entropy / np.log(3)
-
-        # Calculate confidence score (inverse of entropy)
-        confidence_score = 1 - normalized_entropy
-
-        # Calculate variance from uniform distribution as additional risk factor
-        uniform_prob = 1/3
-        variance = np.sum((probs - uniform_prob) ** 2) / 3
-
-        # Combine factors: lower confidence + higher variance = higher risk
-        risk_score = (1 - confidence_score) * 50 + variance * 50
-
-        # Scale to 0-100 range (no additional multiplication needed)
-        risk_score = min(100, max(0, risk_score))
-
-        return risk_score, confidence_score
-
     # Apply risk scoring to all predictions
     risk_scores = []
     confidence_scores = []
     for idx, row in upcoming_df.iterrows():
-        risk, confidence = calculate_prediction_risk(
-            row['HomeWin_Prob'],
-            row['Draw_Prob'],
-            row['AwayWin_Prob']
-        )
+        risk, confidence = calculate_prediction_risk([
+            row['HomeWin_Prob'], row['Draw_Prob'], row['AwayWin_Prob']
+        ])
         risk_scores.append(risk)
         confidence_scores.append(confidence)
-
-    # Add risk categories adjusted for match prediction with limited data
-    # Based on actual distribution: most scores are 40-50, need broader low risk band
-    def get_risk_category(risk_score):
-        if risk_score > 47:
-            return "Critical Risk", "🚨"
-        elif risk_score > 40:
-            return "High Risk", "🔴"
-        elif risk_score > 30:
-            return "Moderate Risk", "🟡"
-        else:
-            return "Low Risk", "🟢"
 
     risk_categories = []
     risk_emojis = []
@@ -1872,42 +1882,14 @@ with tab3:
         risk_categories.append(category)
         risk_emojis.append(emoji)
 
-    # Add betting recommendations based on risk
-    def get_betting_recommendation(home_prob, draw_prob, away_prob, risk_score):
-        max_prob = max(home_prob, draw_prob, away_prob)
-        confidence_threshold = 0.6  # 60% confidence minimum
-
-        if max_prob >= confidence_threshold and risk_score <= 30:
-            # High confidence, low risk - recommend betting
-            if home_prob == max_prob:
-                return "Bet Home Win", "💰"
-            elif draw_prob == max_prob:
-                return "Bet Draw", "💰"
-            else:
-                return "Bet Away Win", "💰"
-        elif max_prob >= 0.5 and risk_score <= 50:
-            # Moderate confidence - consider betting
-            if home_prob == max_prob:
-                return "Consider Home", "🤔"
-            elif draw_prob == max_prob:
-                return "Consider Draw", "🤔"
-            else:
-                return "Consider Away", "🤔"
-        else:
-            # Low confidence or high risk - avoid betting
-            return "Avoid Betting", "❌"
-
     betting_recs = []
     betting_emojis = []
     for i, risk_score in enumerate(risk_scores):
         home_prob = upcoming_df.iloc[i]['HomeWin_Prob']
         draw_prob = upcoming_df.iloc[i]['Draw_Prob']
         away_prob = upcoming_df.iloc[i]['AwayWin_Prob']
-        rec, emoji = get_betting_recommendation(
-            home_prob,
-            draw_prob,
-            away_prob,
-            risk_score
+        rec, emoji = get_prediction_guidance(
+            [home_prob, draw_prob, away_prob], risk_score
         )
         betting_recs.append(rec)
         betting_emojis.append(emoji)
@@ -1954,7 +1936,7 @@ with tab3:
             'Model Exp. Total Goals', 'Model Over 2.5 %', 'Model Under 2.5 %',
             'Model BTTS %', 'Model Score',
         ]
-    display_labels += ['Risk Score', 'Risk Level', 'Confidence %', 'Betting Tip']
+    display_labels += ['Risk Score', 'Risk Level', 'Confidence %', 'Model Guidance']
     display_df.columns = ['Match Date', 'Kickoff Time', 'Home Team', 'Away Team'] + \
                         (['Referee'] if 'Referee' in upcoming_df.columns else []) + \
                         display_labels
@@ -1999,19 +1981,19 @@ with tab3:
 
     with col2:
         show_low = st.button("🟢 Low Risk", width='stretch',
-                           help="Risk score ≤30: Relatively more confident predictions")
+                           help=f"Risk score ≤{LOW_RISK_MAX:.0f}: More decisive model predictions")
 
     with col3:
         show_moderate = st.button("🟡 Moderate Risk", width='stretch',
-                                help="Risk score 31-40: Moderate confidence predictions")
+                                help=f"Risk score {LOW_RISK_MAX:.0f}-{MODERATE_RISK_MAX:.0f}: Usable, but less decisive predictions")
 
     with col4:
-        show_high = st.button("🔴 High Risk", width='stretch',
-                            help="Risk score 41-47: Lower confidence predictions")
+        show_high = st.button("🟠 High Risk", width='stretch',
+                            help=f"Risk score {MODERATE_RISK_MAX:.0f}-{HIGH_RISK_MAX:.0f}: Ambiguous predictions")
 
     with col5:
-        show_critical = st.button("🚨 Critical Risk", width='stretch',
-                                help="Risk score >47: Very low confidence predictions")
+        show_critical = st.button("🔴 Critical Risk", width='stretch',
+                                help=f"Risk score >{HIGH_RISK_MAX:.0f}: Outcomes are close to a three-way toss-up")
 
     # Determine which filter is active - only one can be true at a time
     active_filters = [show_all, show_low, show_moderate, show_high, show_critical]
@@ -2027,17 +2009,17 @@ with tab3:
             filtered_df = display_df.copy()
             active_filter = "All Matches"
         elif show_low:
-            filtered_df = display_df[display_df['Risk Score'] <= 30].copy()
-            active_filter = "Low Risk (≤30)"
+            filtered_df = display_df[display_df['Risk Score'] <= LOW_RISK_MAX].copy()
+            active_filter = f"Low Risk (≤{LOW_RISK_MAX:.0f})"
         elif show_moderate:
-            filtered_df = display_df[(display_df['Risk Score'] > 30) & (display_df['Risk Score'] <= 40)].copy()
-            active_filter = "Moderate Risk (31-40)"
+            filtered_df = display_df[(display_df['Risk Score'] > LOW_RISK_MAX) & (display_df['Risk Score'] <= MODERATE_RISK_MAX)].copy()
+            active_filter = f"Moderate Risk ({LOW_RISK_MAX:.0f}-{MODERATE_RISK_MAX:.0f})"
         elif show_high:
-            filtered_df = display_df[(display_df['Risk Score'] > 40) & (display_df['Risk Score'] <= 47)].copy()
-            active_filter = "High Risk (41-47)"
+            filtered_df = display_df[(display_df['Risk Score'] > MODERATE_RISK_MAX) & (display_df['Risk Score'] <= HIGH_RISK_MAX)].copy()
+            active_filter = f"High Risk ({MODERATE_RISK_MAX:.0f}-{HIGH_RISK_MAX:.0f})"
         elif show_critical:
-            filtered_df = display_df[display_df['Risk Score'] > 47].copy()
-            active_filter = "Critical Risk (>47)"
+            filtered_df = display_df[display_df['Risk Score'] > HIGH_RISK_MAX].copy()
+            active_filter = f"Critical Risk (>{HIGH_RISK_MAX:.0f})"
     else:
         # Multiple filters clicked - show all as fallback
         filtered_df = display_df.copy()
@@ -2046,10 +2028,10 @@ with tab3:
     # Debug: Show risk score distribution
     with st.expander("🔍 Risk Score Debug (Click to expand)", expanded=False):
         risk_counts = {
-            'Low (≤30)': len(display_df[display_df['Risk Score'] <= 30]),
-            'Moderate (31-40)': len(display_df[(display_df['Risk Score'] > 30) & (display_df['Risk Score'] <= 40)]),
-            'High (41-47)': len(display_df[(display_df['Risk Score'] > 40) & (display_df['Risk Score'] <= 47)]),
-            'Critical (>47)': len(display_df[display_df['Risk Score'] > 47])
+            f'Low (≤{LOW_RISK_MAX:.0f})': len(display_df[display_df['Risk Score'] <= LOW_RISK_MAX]),
+            f'Moderate ({LOW_RISK_MAX:.0f}-{MODERATE_RISK_MAX:.0f})': len(display_df[(display_df['Risk Score'] > LOW_RISK_MAX) & (display_df['Risk Score'] <= MODERATE_RISK_MAX)]),
+            f'High ({MODERATE_RISK_MAX:.0f}-{HIGH_RISK_MAX:.0f})': len(display_df[(display_df['Risk Score'] > MODERATE_RISK_MAX) & (display_df['Risk Score'] <= HIGH_RISK_MAX)]),
+            f'Critical (>{HIGH_RISK_MAX:.0f})': len(display_df[display_df['Risk Score'] > HIGH_RISK_MAX])
         }
         st.write("**Risk Score Distribution:**")
         for category, count in risk_counts.items():
@@ -2062,24 +2044,29 @@ with tab3:
     # Risk scoring explanation
     with st.expander("📊 Risk Scoring Methodology", expanded=False):
         st.markdown("""
-        **Risk Assessment Framework** (Adapted from HenryOnilude's statistical variance analysis):
+        **Risk Assessment Framework:**
 
         **Risk Score (0-100):**
-        - 🟢 **Low Risk (0-30)**: Relatively more confident predictions
-        - 🟡 **Moderate Risk (31-40)**: Moderate confidence predictions
-        - 🔴 **High Risk (41-47)**: Lower confidence predictions
-        - 🚨 **Critical Risk (>47)**: Very low confidence predictions (limited data available)
+        - 🟢 **Low Risk (0-60)**: More decisive model predictions
+        - 🟡 **Moderate Risk (60-80)**: A usable lean with meaningful uncertainty
+        - 🟠 **High Risk (80-92)**: Ambiguous outcome probabilities
+        - 🔴 **Critical Risk (>92)**: Close to a three-way toss-up
 
-        **Confidence Score:** Measures prediction certainty (inverse of entropy)
-        **Betting Recommendations:** Risk-adjusted suggestions based on confidence and risk levels
+        **How it works:** The score combines the leading outcome probability with its
+        margin over the second-most-likely outcome. A 33/33/33 forecast scores 100;
+        a certain outcome scores 0.
+
+        **Important:** Risk measures model ambiguity, not betting value. A profitable
+        bet also requires offered odds that are better than the model's fair price.
         """)
 
     # Summary statistics (based on filtered data)
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         if len(filtered_df) > 0:
-            low_risk_pct = (filtered_df['Risk Score'] <= 13).sum() / len(filtered_df) * 100
-            st.metric("Low Risk in Filter", f"{(filtered_df['Risk Score'] <= 13).sum()}/{len(filtered_df)}", f"{low_risk_pct:.1f}%")
+            low_risk_count = (filtered_df['Risk Score'] <= LOW_RISK_MAX).sum()
+            low_risk_pct = low_risk_count / len(filtered_df) * 100
+            st.metric("Low Risk in Filter", f"{low_risk_count}/{len(filtered_df)}", f"{low_risk_pct:.1f}%")
         else:
             st.metric("Low Risk in Filter", "0/0", "0.0%")
     with col2:
@@ -2090,10 +2077,11 @@ with tab3:
             st.metric("High Confidence in Filter", "0/0", "0.0%")
     with col3:
         if len(filtered_df) > 0:
-            bettable_pct = filtered_df['Betting Tip'].str.contains('Bet|Consider').sum() / len(filtered_df) * 100
-            st.metric("Recommended Bets in Filter", f"{filtered_df['Betting Tip'].str.contains('Bet|Consider').sum()}/{len(filtered_df)}", f"{bettable_pct:.1f}%")
+            actionable_count = filtered_df['Model Guidance'].str.contains('Strong|Consider').sum()
+            actionable_pct = actionable_count / len(filtered_df) * 100
+            st.metric("Actionable Leans in Filter", f"{actionable_count}/{len(filtered_df)}", f"{actionable_pct:.1f}%")
         else:
-            st.metric("Recommended Bets in Filter", "0/0", "0.0%")
+            st.metric("Actionable Leans in Filter", "0/0", "0.0%")
     with col4:
         if len(filtered_df) > 0:
             avg_risk = filtered_df['Risk Score'].mean()
@@ -2104,14 +2092,14 @@ with tab3:
     # Add color styling to the dataframe based on risk levels
     def color_risk_rows(row):
         risk_score = row['Risk Score']
-        if risk_score <= 30:
+        if risk_score <= LOW_RISK_MAX:
             return ['background-color: #d4edda; color: #155724'] * len(row)  # Green for low risk
-        elif risk_score <= 40:
+        elif risk_score <= MODERATE_RISK_MAX:
             return ['background-color: #fff3cd; color: #856404'] * len(row)  # Yellow for moderate risk
-        elif risk_score <= 47:
-            return ['background-color: #f8d7da; color: #721c24'] * len(row)  # Red for high risk
+        elif risk_score <= HIGH_RISK_MAX:
+            return ['background-color: #ffe5b4; color: #7a4100'] * len(row)  # Orange for high risk
         else:
-            return ['background-color: #f5c6cb; color: #721c24'] * len(row)  # Dark red for critical risk
+            return ['background-color: #f8d7da; color: #721c24'] * len(row)  # Red for critical risk
 
     # Apply styling and display filtered dataframe
     if len(filtered_df) > 0:

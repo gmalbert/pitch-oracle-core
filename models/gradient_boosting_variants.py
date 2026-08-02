@@ -4,7 +4,7 @@ Gradient Boosting Variants: LightGBM + CatBoost predictors and ensemble.
 
 import pickle
 import numpy as np
-from sklearn.metrics import accuracy_score, mean_absolute_error
+from sklearn.metrics import accuracy_score, log_loss
 from sklearn.ensemble import VotingClassifier
 from xgboost import XGBClassifier
 
@@ -86,7 +86,10 @@ def create_gradient_boosting_ensemble():
     """
     lgbm = LightGBMPredictor().model
     catb = CatBoostPredictor().model
-    xgb = XGBClassifier(n_estimators=200, max_depth=6, random_state=42, eval_metric='mlogloss')
+    xgb = XGBClassifier(
+        n_estimators=200, max_depth=6, random_state=42,
+        eval_metric='mlogloss', n_jobs=1,
+    )
 
     ensemble = VotingClassifier(
         estimators=[
@@ -96,6 +99,7 @@ def create_gradient_boosting_ensemble():
         ],
         voting='soft',
         weights=[1.5, 1.5, 1.0],
+        n_jobs=1,
     )
     return ensemble
 
@@ -106,9 +110,9 @@ def train_gradient_boosting_variants(X_train, y_train, X_test, y_test):
 
     Returns:
         dict: {
-            'lgbm': {'model': ..., 'accuracy': ..., 'mae': ...},
-            'catboost': {'model': ..., 'accuracy': ..., 'mae': ...},
-            'gb_ensemble': {'model': ..., 'accuracy': ..., 'mae': ...},
+            'lgbm': {'model': ..., 'accuracy': ..., 'log_loss': ...},
+            'catboost': {'model': ..., 'accuracy': ..., 'log_loss': ...},
+            'gb_ensemble': {'model': ..., 'accuracy': ..., 'log_loss': ...},
         }
     """
     results = {}
@@ -120,7 +124,7 @@ def train_gradient_boosting_variants(X_train, y_train, X_test, y_test):
         results['lgbm'] = {
             'model': lgbm_predictor,
             'accuracy': accuracy_score(y_test, lgbm_pred),
-            'mae': mean_absolute_error(y_test, lgbm_pred),
+            'log_loss': log_loss(y_test, lgbm_predictor.predict_proba(X_test), labels=[0, 1, 2]),
         }
 
     if CATBOOST_AVAILABLE:
@@ -130,7 +134,7 @@ def train_gradient_boosting_variants(X_train, y_train, X_test, y_test):
         results['catboost'] = {
             'model': catb_predictor,
             'accuracy': accuracy_score(y_test, catb_pred),
-            'mae': mean_absolute_error(y_test, catb_pred),
+            'log_loss': log_loss(y_test, catb_predictor.predict_proba(X_test), labels=[0, 1, 2]),
         }
 
     if LIGHTGBM_AVAILABLE and CATBOOST_AVAILABLE:
@@ -140,7 +144,7 @@ def train_gradient_boosting_variants(X_train, y_train, X_test, y_test):
         results['gb_ensemble'] = {
             'model': gb_ensemble,
             'accuracy': accuracy_score(y_test, gb_pred),
-            'mae': mean_absolute_error(y_test, gb_pred),
+            'log_loss': log_loss(y_test, gb_ensemble.predict_proba(X_test), labels=[0, 1, 2]),
         }
 
     return results

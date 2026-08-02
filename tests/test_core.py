@@ -1,4 +1,5 @@
 import pytest
+from dataclasses import replace
 
 from pitch_oracle_core import (
     OptionalFeatureSet, Shot, apply_phase_transition, assign_phase,
@@ -7,6 +8,7 @@ from pitch_oracle_core import (
 )
 from pitch_oracle_core.providers import ProviderRegistry
 from pitch_oracle_core.training import TrainingResult
+from pitch_oracle_core.runtime import Runtime
 
 
 def test_all_reference_leagues_have_identifiers():
@@ -63,3 +65,16 @@ def test_epl_provider_configuration_is_parameterized():
 def test_provider_registry_skips_unavailable_optional_features():
     assert ProviderRegistry().fetch_optional_features(get_league_config("eredivisie")) == {}
     assert TrainingResult.__annotations__["league"] is str
+
+
+def test_runtime_uses_consumer_configured_directories(tmp_path):
+    config = replace(
+        get_league_config("eredivisie"),
+        data_dir_name="league_data",
+        models_dir_name="league_models",
+    )
+    runtime = Runtime.for_league(config, tmp_path)
+
+    assert runtime.data_dir == tmp_path / "league_data"
+    assert runtime.models_dir == tmp_path / "league_models"
+    assert runtime.environment()["PITCH_ORACLE_LEAGUE"] == "eredivisie"

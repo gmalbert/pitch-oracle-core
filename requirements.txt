@@ -4,7 +4,7 @@ pandas
 python-dotenv
 requests
 scikit-learn>=1.8.0,<2
-streamlit>=1.51
+streamlit>=1.57
 xgboost
 plotly
 torch

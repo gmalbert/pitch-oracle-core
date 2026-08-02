@@ -16,3 +16,5 @@ models/*.joblib
 *.log
 venv/
 .commandcode/
+.cache.sqlite
+output/
