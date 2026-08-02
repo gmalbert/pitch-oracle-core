@@ -40,3 +40,6 @@ reasoning in `01-architecture-decision.md`.
 3. **03-implementation-plan.md** — phased build-out, in the order you should actually do it
 4. **04-per-league-notes.md** — structural quirks (playoffs, split formats, sanctions) each
    league needs baked into the schema, one section per league
+5. **new-consumer-repository.md** — executable bootstrap, GitHub setup, baseline
+   source policy, artifact workflow, acceptance gates, and core upgrades for every
+   new thin consumer repository

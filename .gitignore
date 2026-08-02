@@ -8,6 +8,12 @@ dist/
 *.egg-info/
 data_files/
 precomputed/
+!templates/consumer/data_files/
+!templates/consumer/data_files/.gitkeep
+!templates/consumer/precomputed/
+!templates/consumer/precomputed/.gitkeep
+!templates/consumer/models/
+!templates/consumer/models/.gitkeep
 cache/
 models/*.pkl
 models/*.pth
