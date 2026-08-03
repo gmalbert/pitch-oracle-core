@@ -35,6 +35,13 @@ def render_sidebar_branding(config: LeagueConfig) -> None:
             key=f"{config.key}_launch_theme_choice",
             help="Choose one option. This chooser will be removed once the selected theme is implemented.",
         )
+        # apply_theme runs in the entrypoint before this sidebar renders, so a
+        # theme change must be detected here and the app re-run to restyle.
+        applied_key = f"{config.key}_launch_theme_choice_applied"
+        choice = st.session_state[f"{config.key}_launch_theme_choice"]
+        if choice != st.session_state.get(applied_key):
+            st.session_state[applied_key] = choice
+            st.rerun()
 
 
 def build_navigation(config: LeagueConfig):
