@@ -327,6 +327,17 @@ def apply_theme(config: LeagueConfig) -> None:
             color: var(--pitch-text);
         }}
 
+        /* Keep Streamlit's fixed top bar on the same theme surface as the
+           main section.  The explicit toolbar/decorative selectors prevent
+           Streamlit's default secondary-background color from showing
+           through in either light or dark mode. */
+        [data-testid="stHeader"],
+        [data-testid="stToolbar"],
+        [data-testid="stDecoration"] {{
+            background: var(--pitch-page) !important;
+            background-color: var(--pitch-page) !important;
+        }}
+
         [data-testid="stSidebar"] {{
             background: var(--pitch-sidebar);
             border-right: 1px solid var(--pitch-border);

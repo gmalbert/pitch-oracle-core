@@ -46,6 +46,8 @@ def test_dark_palette_switches_text_vars_to_light(tmp_path, monkeypatch):
     assert "--pitch-text: #e8ecf2" in css
     assert "--pitch-card: #14181f" in css
     assert "--pitch-header-bg: #1a2029" in css
+    assert '[data-testid="stHeader"]' in css
+    assert 'background: var(--pitch-page) !important' in css
     # The palette's own colors still apply.
     assert f"--pitch-primary: {LAUNCH_THEMES[dark_name]['primary']}" in css
     assert f"--pitch-page: {LAUNCH_THEMES[dark_name]['page']}" in css
@@ -74,6 +76,8 @@ def test_light_palette_keeps_dark_text_vars(tmp_path, monkeypatch):
     assert "--pitch-text: #31333f" in css
     assert "--pitch-card: #f8fafc" in css
     assert "--pitch-header-bg: #eef3f8" in css
+    assert '[data-testid="stHeader"]' in css
+    assert 'background-color: var(--pitch-page) !important' in css
 
 
 def _write_entrypoint(tmp_path: Path) -> Path:
