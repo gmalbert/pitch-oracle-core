@@ -17,6 +17,65 @@ def test_palette_registry_covers_every_field():
             assert value.startswith("#") and len(value) == 7, f"{name} {value} is not a hex color"
 
 
+def _css(app) -> str:
+    return "\n".join(markdown.value for markdown in app.markdown if "<style>" in markdown.value)
+
+
+def test_dark_palette_switches_text_vars_to_light(tmp_path, monkeypatch):
+    artifact = tmp_path / "data" / "ready.txt"
+    artifact.parent.mkdir()
+    artifact.write_text("ready", encoding="utf-8")
+    write_cache_manifest(
+        tmp_path,
+        requirements=(CacheRequirement("ready", "data/ready.txt"),),
+        league="test",
+    )
+    entrypoint = _write_entrypoint(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    app = AppTest.from_file(entrypoint, default_timeout=30).run()
+    assert not app.exception
+
+    # Find a Nighttime palette and switch to it.
+    dark_name = next(name for name in LAUNCH_THEMES if name.startswith("🌙"))
+    app.sidebar.selectbox[0].set_value(dark_name).run()
+    assert not app.exception
+
+    css = _css(app)
+    # Dark palettes must render light body text and dark cards.
+    assert "--pitch-text: #e8ecf2" in css
+    assert "--pitch-card: #14181f" in css
+    assert "--pitch-header-bg: #1a2029" in css
+    # The palette's own colors still apply.
+    assert f"--pitch-primary: {LAUNCH_THEMES[dark_name]['primary']}" in css
+    assert f"--pitch-page: {LAUNCH_THEMES[dark_name]['page']}" in css
+
+
+def test_light_palette_keeps_dark_text_vars(tmp_path, monkeypatch):
+    artifact = tmp_path / "data" / "ready.txt"
+    artifact.parent.mkdir()
+    artifact.write_text("ready", encoding="utf-8")
+    write_cache_manifest(
+        tmp_path,
+        requirements=(CacheRequirement("ready", "data/ready.txt"),),
+        league="test",
+    )
+    entrypoint = _write_entrypoint(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    app = AppTest.from_file(entrypoint, default_timeout=30).run()
+    assert not app.exception
+
+    light_name = next(name for name in LAUNCH_THEMES if name.startswith("☀️"))
+    app.sidebar.selectbox[0].set_value(light_name).run()
+    assert not app.exception
+
+    css = _css(app)
+    assert "--pitch-text: #31333f" in css
+    assert "--pitch-card: #f8fafc" in css
+    assert "--pitch-header-bg: #eef3f8" in css
+
+
 def _write_entrypoint(tmp_path: Path) -> Path:
     entrypoint = tmp_path / "predictions.py"
     entrypoint.write_text(

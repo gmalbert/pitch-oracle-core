@@ -291,6 +291,18 @@ def apply_theme(config: LeagueConfig) -> None:
             f"{config.key}_launch_theme_choice_applied", choice
         )
 
+    # Dark themes need light text everywhere; infer from the page background
+    # luminance so the palettes can't drift out of sync with the CSS mode.
+    def _luminance(hex_color: str) -> float:
+        value = hex_color.lstrip("#")
+        try:
+            r, g, b = (int(value[i : i + 2], 16) for i in (0, 2, 4))
+        except ValueError:
+            return 1.0
+        return (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
+
+    dark = _luminance(page) < 0.5
+
     st.markdown(
         f"""
         <style>
@@ -301,11 +313,18 @@ def apply_theme(config: LeagueConfig) -> None:
             --pitch-page: {page};
             --pitch-border: {border};
             --pitch-muted: {muted};
+            --pitch-text: {'#e8ecf2' if dark else '#31333f'};
+            --pitch-text-soft: {'#aab4c2' if dark else '#5b6472'};
+            --pitch-card: {'#14181f' if dark else '#f8fafc'};
+            --pitch-card-border: {'#2a313c' if dark else '#e5eaf0'};
+            --pitch-header-bg: {'#1a2029' if dark else '#eef3f8'};
+            --pitch-active-bg: {'#243040' if dark else '#dce8f7'};
         }}
 
         [data-testid="stAppViewContainer"],
         [data-testid="stMain"] {{
             background: var(--pitch-page);
+            color: var(--pitch-text);
         }}
 
         [data-testid="stSidebar"] {{
@@ -323,17 +342,30 @@ def apply_theme(config: LeagueConfig) -> None:
             padding-bottom: 3rem;
         }}
 
-        h1, h2, h3, h4, h5, h6 {{
+        /* Streamlit's own heading rule (`.st-emotion-cache-* h1`) beats a bare
+           `h1`, so scope headings to the app container to win the cascade. */
+        [data-testid="stAppViewContainer"] h1,
+        [data-testid="stAppViewContainer"] h2,
+        [data-testid="stAppViewContainer"] h3,
+        [data-testid="stAppViewContainer"] h4,
+        [data-testid="stAppViewContainer"] h5,
+        [data-testid="stAppViewContainer"] h6 {{
             color: var(--pitch-primary-dark);
             letter-spacing: -0.02em;
         }}
 
-        h1 {{
+        [data-testid="stAppViewContainer"] h1 {{
             margin-bottom: 0.35rem;
         }}
 
         [data-testid="stCaptionContainer"] {{
             color: var(--pitch-muted);
+        }}
+
+        [data-testid="stMarkdownContainer"] p,
+        [data-testid="stMarkdownContainer"] li,
+        [data-testid="stMarkdownContainer"] span {{
+            color: var(--pitch-text);
         }}
 
         /* Preserve the complete logo/artwork in responsive image containers. */
@@ -354,10 +386,14 @@ def apply_theme(config: LeagueConfig) -> None:
         }}
 
         [data-testid="stMetric"] {{
-            background: #f8fafc;
-            border: 1px solid var(--pitch-border);
+            background: var(--pitch-card);
+            border: 1px solid var(--pitch-card-border);
             border-radius: 10px;
             padding: 0.85rem 1rem;
+        }}
+
+        [data-testid="stMetricLabel"] {{
+            color: var(--pitch-text-soft);
         }}
 
         [data-testid="stMetricValue"] {{
@@ -371,7 +407,7 @@ def apply_theme(config: LeagueConfig) -> None:
         }}
 
         [data-testid="stDataFrame"] th {{
-            background: #eef3f8;
+            background: var(--pitch-header-bg);
             color: var(--pitch-primary-dark);
             font-weight: 600;
         }}
@@ -385,7 +421,7 @@ def apply_theme(config: LeagueConfig) -> None:
         }}
 
         [data-testid="stSidebarNav"] [aria-current="page"] {{
-            background: #dce8f7;
+            background: var(--pitch-active-bg);
             color: var(--pitch-primary-dark);
             border-radius: 7px;
         }}
@@ -393,12 +429,58 @@ def apply_theme(config: LeagueConfig) -> None:
         .stButton > button {{
             border-color: var(--pitch-primary);
             color: var(--pitch-primary-dark);
+            background: transparent;
             border-radius: 7px;
         }}
 
         .stButton > button:hover {{
             border-color: var(--pitch-primary-dark);
             color: var(--pitch-primary-dark);
+        }}
+
+        /* ── Mode-aware component text (vars flip between light and dark) ── */
+        [data-testid="stAppViewContainer"] [data-testid="stSidebar"] {{
+            color: var(--pitch-text);
+        }}
+
+        [data-testid="stSidebarNav"] a,
+        [data-testid="stSidebarNav"] span {{
+            color: var(--pitch-text);
+        }}
+
+        [data-testid="stDataFrame"] .glide-cell {{
+            color: var(--pitch-text);
+        }}
+
+        .stTabs [data-baseweb="tab-list"] button {{
+            color: var(--pitch-text-soft);
+        }}
+
+        .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {{
+            color: var(--pitch-primary-dark);
+        }}
+
+        label,
+        .stRadio label,
+        .stCheckbox label,
+        .stSelectbox label {{
+            color: var(--pitch-text);
+        }}
+
+        input,
+        textarea,
+        [data-baseweb="select"] > div {{
+            color: var(--pitch-text);
+            background-color: var(--pitch-card);
+            border-color: var(--pitch-card-border);
+        }}
+
+        [data-baseweb="select"] * {{
+            color: var(--pitch-text);
+        }}
+
+        .stAlert {{
+            color: var(--pitch-text);
         }}
         </style>
         """,
