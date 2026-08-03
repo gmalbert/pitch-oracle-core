@@ -18,12 +18,12 @@ from .ui_pages import (
 )
 
 
-def render_sidebar_branding(config: LeagueConfig) -> None:
+def render_sidebar_branding(config: LeagueConfig, *, show_logo: bool = True) -> None:
     """Render shared, non-navigation sidebar content."""
     logo = path.join("data_files", "logo.png")
-    if path.exists(logo):
+    if show_logo and path.exists(logo):
         st.sidebar.image(logo, width=150)
-    else:
+    elif show_logo:
         st.sidebar.markdown("## ⚽ Pitch Oracle")
 
     if config.theme.launch_theme_choices:

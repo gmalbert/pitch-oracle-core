@@ -67,6 +67,8 @@ class LeagueConfig:
     clubelo_code: str | None
     team_count: int
     season_months: tuple[int, int]
+    country_name: str = ""
+    country_flag: str = "⚽"
     phase: PhaseConfig = field(default_factory=PhaseConfig)
     points_adjustments: dict[str, int] = field(default_factory=dict)
     stadium_coordinates: dict[str, tuple[float, float]] = field(default_factory=dict)

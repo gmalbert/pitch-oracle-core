@@ -7,6 +7,12 @@ from .cache import validate_cache
 from .runtime import Runtime
 
 
+def _browser_title(config: LeagueConfig) -> str:
+    """Return the consumer-facing browser title for a league app."""
+    country = config.country_name or config.key.title()
+    return f"{config.display_name} ({country} soccer)"
+
+
 def run(config: LeagueConfig, root: str = ".") -> None:
     runtime = Runtime.for_league(config, root).apply()
     import os
@@ -16,8 +22,8 @@ def run(config: LeagueConfig, root: str = ".") -> None:
     manifest_path = Path(root) / "precomputed" / "cache_manifest.json"
     if not manifest_path.is_file():
         st.set_page_config(
-            page_title=f"Pitch Oracle — {config.display_name} setup",
-            page_icon="⚽",
+            page_title=f"{_browser_title(config)} setup",
+            page_icon=config.country_flag,
             layout="wide",
         )
         st.title(f"{config.display_name} setup required")
@@ -32,8 +38,8 @@ def run(config: LeagueConfig, root: str = ".") -> None:
 
     # st.navigation requires one, and only one, page-config call in the entrypoint.
     st.set_page_config(
-        page_title=f"Pitch Oracle — {config.display_name}",
-        page_icon="⚽",
+        page_title=_browser_title(config),
+        page_icon=config.country_flag,
         layout="wide",
         initial_sidebar_state="expanded",
     )

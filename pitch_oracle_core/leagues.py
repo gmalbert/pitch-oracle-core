@@ -28,10 +28,12 @@ _EPL_STADIUMS = {
 
 BUILTIN_LEAGUES = {
     "epl": LeagueConfig("epl", "Premier League", "E0", "eng.1", "ENG_1", 20, (8, 5),
+                         country_name="England", country_flag="🇬🇧",
                          team_aliases=_EPL_TEAM_ALIASES, stadium_coordinates=_EPL_STADIUMS,
                          sources=_EPL_SOURCES),
     "scotland": LeagueConfig(
         "scotland", "Scottish Premiership", "SC0", "sco.1", "SCO_1", 12, (7, 5),
+        country_name="Scotland", country_flag="🇬🇧",
         phase=PhaseConfig(regular_matches_per_opponent=3, split_after_round=33,
                           split_pools=("top_6", "bottom_6"), playoffs=(
                               PlayoffConfig("promotion_relegation", cross_division=True),)),
@@ -39,16 +41,20 @@ BUILTIN_LEAGUES = {
     ),
     "eredivisie": LeagueConfig(
         "eredivisie", "Eredivisie", "N1", "ned.1", "NED_1", 18, (8, 5),
+        country_name="Netherlands", country_flag="🇳🇱",
         phase=PhaseConfig(playoffs=(PlayoffConfig("european_qualification"),)), sources=_OPTIONAL,
     ),
-    "portugal": LeagueConfig("portugal", "Primeira Liga", "P1", None, "POR_1", 18, (8, 5), sources=_OPTIONAL),
+    "portugal": LeagueConfig("portugal", "Primeira Liga", "P1", None, "POR_1", 18, (8, 5),
+                              country_name="Portugal", country_flag="🇵🇹", sources=_OPTIONAL),
     "belgium": LeagueConfig(
         "belgium", "Belgian Pro League", "B1", "bel.1", "BEL_1", 18, (8, 5),
+        country_name="Belgium", country_flag="🇧🇪",
         phase=PhaseConfig(split_after_round=34, split_pools=("champions", "europe", "relegation"),
                           points_halving=True, points_halving_rounding="ceil"), sources=_OPTIONAL,
     ),
     "turkey": LeagueConfig(
         "turkey", "Süper Lig", "T1", None, "TUR_1", 20, (8, 5),
+        country_name="Turkey", country_flag="🇹🇷",
         points_adjustments={}, sources=_OPTIONAL,
     ),
 }

@@ -3,6 +3,12 @@ from pathlib import Path
 from streamlit.testing.v1 import AppTest
 
 from pitch_oracle_core.cache import CacheRequirement, write_cache_manifest
+from pitch_oracle_core.app_factory import _browser_title
+from pitch_oracle_core import get_league_config
+
+
+def test_consumer_browser_title_uses_league_and_country():
+    assert _browser_title(get_league_config("eredivisie")) == "Eredivisie (Netherlands soccer)"
 
 
 def test_non_epl_app_starts_without_legacy_epl_content(tmp_path, monkeypatch):

@@ -205,7 +205,7 @@ def _page_title(config: LeagueConfig, title: str, subtitle: str) -> None:
 
 def render_overview(config: LeagueConfig) -> None:
     from .navigation import render_sidebar_branding
-    render_sidebar_branding(config)
+    render_sidebar_branding(config, show_logo=False)
     logo = path.join(_data_dir(), "logo.png")
     title = "English Premier League - Overview" if config.key == "epl" else f"{config.display_name} - Overview"
     if path.exists(logo):
