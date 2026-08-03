@@ -26,6 +26,16 @@ def render_sidebar_branding(config: LeagueConfig) -> None:
     else:
         st.sidebar.markdown("## ⚽ Pitch Oracle")
 
+    if config.theme.launch_theme_choices:
+        st.sidebar.divider()
+        st.sidebar.caption("Temporary launch-theme chooser")
+        st.sidebar.selectbox(
+            "Choose a theme to implement",
+            config.theme.launch_theme_choices,
+            key=f"{config.key}_launch_theme_choice",
+            help="Choose one option. This chooser will be removed once the selected theme is implemented.",
+        )
+
 
 def build_navigation(config: LeagueConfig):
     """Build the sidebar navigation with explicit icons and ASCII-safe pages."""

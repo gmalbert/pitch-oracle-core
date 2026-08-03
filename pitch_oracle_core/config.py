@@ -34,6 +34,9 @@ class ThemeConfig:
     page: str = "#ffffff"
     border: str = "#d9e0e8"
     muted: str = "#64748b"
+    # A consumer may temporarily offer launch-theme candidates.  An empty
+    # tuple keeps the control out of production consumers.
+    launch_theme_choices: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
