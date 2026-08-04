@@ -15,6 +15,7 @@ class DataSourceConfig:
     api_football: bool = True
     understat: bool = False
     weather: bool = True
+    weather_timezone: str = "Europe/London"
     referee: bool = False
     injuries: bool = False
     live_odds_providers: tuple[str, ...] = ()

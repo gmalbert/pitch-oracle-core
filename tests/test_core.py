@@ -62,6 +62,14 @@ def test_epl_provider_configuration_is_parameterized():
     assert config.stadium_coordinates["Liverpool"] == (53.4308, -2.9608)
 
 
+def test_eredivisie_weather_configuration_covers_historical_and_current_names():
+    config = get_league_config("eredivisie")
+    assert config.sources.weather is True
+    assert config.sources.weather_timezone == "Europe/Amsterdam"
+    for team in ("Ajax", "PSV Eindhoven", "NEC Nijmegen", "SC Cambuur", "FC Twente"):
+        assert team in config.stadium_coordinates
+
+
 def test_provider_registry_skips_unavailable_optional_features():
     assert ProviderRegistry().fetch_optional_features(get_league_config("eredivisie")) == {}
     assert TrainingResult.__annotations__["league"] is str

@@ -464,7 +464,9 @@ if LEAGUE_CONFIG.sources.weather:
                 team: {"lat": coordinates[0], "lon": coordinates[1]}
                 for team, coordinates in LEAGUE_CONFIG.stadium_coordinates.items()
             },
+            cache_file=f"weather_cache_{LEAGUE_CONFIG.key}.csv",
             data_dir=DATA_DIR,
+            timezone=LEAGUE_CONFIG.sources.weather_timezone,
         )
         historical_data_with_calculations = add_weather_impact_category(historical_data_with_calculations)
         print("Weather data integration completed")

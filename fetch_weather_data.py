@@ -102,7 +102,14 @@ STADIUM_MAP = {
     'Sunderland': 'Stadium of Light',
 }
 
-def fetch_match_weather(stadium_location, match_date, api_key=None, *, raise_on_error=False):
+def fetch_match_weather(
+    stadium_location,
+    match_date,
+    api_key=None,
+    *,
+    raise_on_error=False,
+    timezone="Europe/London",
+):
     """
     Fetch weather conditions for match day using Open-Meteo API (completely free)
     API: https://open-meteo.com/
@@ -141,7 +148,7 @@ def fetch_match_weather(stadium_location, match_date, api_key=None, *, raise_on_
             "daily": ["weathercode"],
             "temperature_unit": "celsius",
             "wind_speed_unit": "ms",
-            "timezone": "Europe/London"
+            "timezone": timezone
         }
 
         responses = openmeteo.weather_api(url, params=params)
@@ -218,7 +225,15 @@ def fetch_match_weather(stadium_location, match_date, api_key=None, *, raise_on_
         return None
 
 
-def add_weather_features(df, api_key=None, cache_file='weather_cache.csv', stadium_map=None, stadium_coords=None, data_dir='data_files'):
+def add_weather_features(
+    df,
+    api_key=None,
+    cache_file='weather_cache.csv',
+    stadium_map=None,
+    stadium_coords=None,
+    data_dir='data_files',
+    timezone="Europe/London",
+):
     """
     Add weather data to match dataframe using batch processing
 
@@ -292,7 +307,9 @@ def add_weather_features(df, api_key=None, cache_file='weather_cache.csv', stadi
 
                 # For each stadium on this date, fetch weather
                 for stadium in stadiums:
-                    weather = fetch_match_weather(stadium, date, raise_on_error=True)
+                    weather = fetch_match_weather(
+                        stadium, date, raise_on_error=True, timezone=timezone
+                    )
                     if weather:
                         # Apply to all matches at this stadium on this date
                         for req in requests:
