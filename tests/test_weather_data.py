@@ -1,12 +1,12 @@
 import pandas as pd
 
-import fetch_weather_data as weather
+import pitch_oracle_core.weather as weather
 
 
 def test_weather_provider_failure_stops_after_first_request(monkeypatch, tmp_path):
     calls = []
 
-    def unavailable(stadium, match_date, api_key=None, *, raise_on_error=False, timezone=""):
+    def unavailable(stadium, match_date, *, stadium_coords=None, raise_on_error=False, timezone=""):
         calls.append((stadium, match_date, raise_on_error))
         raise RuntimeError("offline")
 
@@ -18,7 +18,16 @@ def test_weather_provider_failure_stops_after_first_request(monkeypatch, tmp_pat
         ]
     )
 
-    result = weather.add_weather_features(matches, data_dir=str(tmp_path))
+    result = weather.add_weather_features(
+        matches,
+        stadium_map={"Arsenal": "Arsenal", "Chelsea": "Chelsea"},
+        stadium_coords={
+            "Arsenal": {"lat": 51.5549, "lon": -0.1084},
+            "Chelsea": {"lat": 51.4817, "lon": -0.1910},
+        },
+        data_dir=str(tmp_path),
+        fetcher=unavailable,
+    )
 
     assert len(calls) == 1
     assert calls[0][2] is True
@@ -29,7 +38,7 @@ def test_weather_provider_failure_stops_after_first_request(monkeypatch, tmp_pat
 def test_weather_requests_use_the_configured_timezone_and_cache_file(monkeypatch, tmp_path):
     calls = []
 
-    def available(stadium, match_date, api_key=None, *, raise_on_error=False, timezone=""):
+    def available(stadium, match_date, *, stadium_coords=None, raise_on_error=False, timezone=""):
         calls.append((stadium, timezone))
         return {
             "Temperature": 10, "Humidity": 70, "WindSpeed": 3,
@@ -37,7 +46,6 @@ def test_weather_requests_use_the_configured_timezone_and_cache_file(monkeypatch
             "WeatherDescription": "Clear sky",
         }
 
-    monkeypatch.setattr(weather, "fetch_match_weather", available)
     matches = pd.DataFrame([{"HomeTeam": "Ajax", "MatchDate": "2026-01-01"}])
     weather.add_weather_features(
         matches,
@@ -46,6 +54,7 @@ def test_weather_requests_use_the_configured_timezone_and_cache_file(monkeypatch
         cache_file="weather_cache_eredivisie.csv",
         data_dir=str(tmp_path),
         timezone="Europe/Amsterdam",
+        fetcher=available,
     )
 
     assert calls == [("Ajax", "Europe/Amsterdam")]
