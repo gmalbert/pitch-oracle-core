@@ -12,11 +12,12 @@ STADIUM_COORDS = {
 }
 
 
-def fetch_match_weather(stadium_location, match_date, api_key=None, *, raise_on_error=False, timezone="Europe/London"):
+def fetch_match_weather(stadium_location, match_date, api_key=None, *, stadium_coords=None,
+                        raise_on_error=False, timezone="Europe/London"):
     return _weather.fetch_match_weather(
         stadium_location,
         match_date,
-        stadium_coords=STADIUM_COORDS,
+        stadium_coords=stadium_coords or STADIUM_COORDS,
         raise_on_error=raise_on_error,
         timezone=timezone,
     )
