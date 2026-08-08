@@ -98,7 +98,8 @@ def test_daytime_app_uses_blue_sky_ledger_without_chooser(tmp_path, monkeypatch)
     app = _run_app(tmp_path, monkeypatch, local_hour=12)
 
     assert not app.exception
-    assert not app.sidebar.selectbox
+    assert app.sidebar.selectbox[0].label == "Color theme"
+    assert app.sidebar.selectbox[0].value == DAY_THEME_NAME
     css = _css(app)
     palette = LAUNCH_THEMES[DAY_THEME_NAME]
     assert f"--pitch-primary: {palette['primary']}" in css
@@ -110,7 +111,8 @@ def test_nighttime_app_uses_blue_hour_without_chooser(tmp_path, monkeypatch):
     app = _run_app(tmp_path, monkeypatch, local_hour=22)
 
     assert not app.exception
-    assert not app.sidebar.selectbox
+    assert app.sidebar.selectbox[0].label == "Color theme"
+    assert app.sidebar.selectbox[0].value == NIGHT_THEME_NAME
     css = _css(app)
     palette = LAUNCH_THEMES[NIGHT_THEME_NAME]
     assert f"--pitch-primary: {palette['primary']}" in css

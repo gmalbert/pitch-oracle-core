@@ -8,6 +8,7 @@ import streamlit as st
 
 from .config import LeagueConfig
 from .footer import render_footer
+from .theme import THEME_CHOICES, _browser_local_hour, _theme_choice_key, _theme_name_for_hour
 from .ui_pages import (
     render_model_lab,
     render_overview,
@@ -27,6 +28,20 @@ def render_sidebar_branding(config: LeagueConfig, *, show_logo: bool = True) -> 
         st.sidebar.image(logo, width=150)
     elif show_logo:
         st.sidebar.markdown("## ⚽ Pitch Oracle")
+
+    st.sidebar.divider()
+    st.sidebar.selectbox(
+        "Color theme",
+        THEME_CHOICES,
+        index=THEME_CHOICES.index(
+            st.session_state.get(
+                _theme_choice_key(config),
+                _theme_name_for_hour(_browser_local_hour()),
+            )
+        ),
+        key=_theme_choice_key(config),
+        help="Choose the daytime or nighttime color palette for this session.",
+    )
 
 def build_navigation(config: LeagueConfig):
     """Build the sidebar navigation with explicit icons and ASCII-safe pages."""

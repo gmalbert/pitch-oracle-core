@@ -9,8 +9,8 @@ import streamlit as st
 
 from .config import LeagueConfig
 
-# Palette archive retained for visual history. Production selection below is
-# fixed to Blue Sky Ledger and Blue Hour; no palette chooser is rendered.
+# Shared palette choices exposed by the consumer sidebar. The browser-local
+# clock supplies the initial daytime/nighttime selection; users can override it.
 LAUNCH_THEMES: dict[str, dict[str, str]] = {
     # ── Daytime · light themes ────────────────────────────────────────────
     "☀️ Daytime · Alpine Mist": {
@@ -261,12 +261,18 @@ NIGHT_THEME_NAME = "🌙 Nighttime · Blue Hour"
 DAY_START_HOUR = 7
 NIGHT_START_HOUR = 19
 
+THEME_CHOICES = tuple(LAUNCH_THEMES)
+
 
 def _theme_name_for_hour(local_hour: int) -> str:
     """Select the fixed production palette for a browser-local hour."""
     if not 0 <= local_hour <= 23:
         raise ValueError("local_hour must be between 0 and 23")
     return DAY_THEME_NAME if DAY_START_HOUR <= local_hour < NIGHT_START_HOUR else NIGHT_THEME_NAME
+
+
+def _theme_choice_key(config: LeagueConfig) -> str:
+    return f"{config.key}_theme_choice"
 
 
 def _browser_local_hour(
@@ -300,11 +306,16 @@ def apply_theme(config: LeagueConfig) -> None:
     Consumers provide the league identity; the core owns the common visual
     language so every league deployment feels like the same product.
 
-    Blue Sky Ledger is applied from 07:00 through 18:59 in the browser's
-    timezone. Blue Hour is applied overnight. There is no user-facing chooser.
+    The browser-local clock selects the initial palette: Blue Sky Ledger from
+    07:00 through 18:59 and Blue Hour overnight. The sidebar dropdown can then
+    override that choice for the current session.
     """
-    del config  # The production theme policy is shared across all consumers.
-    choice = _theme_name_for_hour(_browser_local_hour())
+    default_choice = _theme_name_for_hour(_browser_local_hour())
+    choice_key = _theme_choice_key(config)
+    choice = st.session_state.setdefault(choice_key, default_choice)
+    if choice not in LAUNCH_THEMES:
+        choice = default_choice
+        st.session_state[choice_key] = choice
     palette = LAUNCH_THEMES[choice]
     primary = palette["primary"]
     primary_dark = palette["primary_dark"]
