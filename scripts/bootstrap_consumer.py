@@ -15,7 +15,7 @@ from pitch_oracle_core import BUILTIN_LEAGUES  # noqa: E402
 
 
 TEMPLATE_ROOT = CORE_ROOT / "templates" / "consumer"
-TEXT_SUFFIXES = {"", ".md", ".py", ".txt", ".ini", ".yml", ".yaml"}
+TEXT_SUFFIXES = {"", ".md", ".py", ".txt", ".ini", ".yml", ".yaml", ".json"}
 REPOSITORY_SLUGS = {
     "scotland": "scotland-soccer",
     "eredivisie": "netherlands-soccer",

@@ -94,6 +94,9 @@ jobs:
         shell: bash
         run: ${{ inputs.prediction_command }}
 
+      - name: Export best bets
+        run: python -m pitch_oracle_core.best_bets
+
       - name: Build and validate cache manifest
         run: python -m build_cache_manifest
 

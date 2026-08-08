@@ -1,0 +1,10 @@
+{
+  "meta": {
+    "sport": "eredivisie",
+    "generated_at": null,
+    "model_version": "1.0.0",
+    "season": null,
+    "notes": "Template; run scripts/export_best_bets.py to generate today's best bets"
+  },
+  "bets": []
+}
