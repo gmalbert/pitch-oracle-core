@@ -308,6 +308,6 @@ and risk-adjusted betting value—not the raw count of recommendations.
 
 ## Next release step
 
-Publish the completed no-odds model contract as core v1.3.15, regenerate the
+Publish the completed no-odds model contract as core v1.3.16, regenerate the
 consumer prediction cache with forecast weather, and validate the refreshed
 consumer application before enabling any live-odds integration.

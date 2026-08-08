@@ -33,6 +33,11 @@ def _feature_names(frame: pd.DataFrame, saved_names: list[str]) -> list[str]:
     return names if len(names) == len(saved_names) else saved_names
 
 
+def _diagnostic_estimator(model: object) -> object:
+    """Return the fitted estimator wrapped by an inference-only calibrator."""
+    return getattr(model, "estimator", model)
+
+
 def generate() -> Path:
     root = Path.cwd()
     data_dir = Path(os.getenv("PITCH_ORACLE_DATA_DIR", root / "data_files"))
@@ -59,9 +64,10 @@ def generate() -> Path:
     names = _feature_names(frame, list(cached["feature_names"]))
     X_test = np.asarray(cached["X_test"])
     y_test = np.asarray(cached["y_test"])
+    diagnostic_model = _diagnostic_estimator(model)
 
     permutation = permutation_importance(
-        model, X_test, y_test, n_repeats=5, random_state=42, n_jobs=-1,
+        diagnostic_model, X_test, y_test, n_repeats=5, random_state=42, n_jobs=-1,
     )
     permutation_df = pd.DataFrame({
         "Feature": names,
@@ -71,7 +77,7 @@ def generate() -> Path:
     permutation_df.to_csv(output_dir / "feature_importance.csv", index=False)
 
     bar_fig, class_figs, _, shap_df = analyze_feature_importance_shap(
-        model, X_test, names, max_display=20,
+        diagnostic_model, X_test, names, max_display=20,
     )
     shap_df.to_csv(output_dir / "shap_importance.csv", index=False)
     bar_fig.savefig(output_dir / "shap_overall.png", dpi=150, bbox_inches="tight")
