@@ -27,6 +27,8 @@ DEFAULT_REQUIREMENTS = (
     CacheRequirement("ensemble", "models/ensemble_model.pkl"),
     CacheRequirement("optimized_xgb", "models/optimized_xgb.pkl"),
     CacheRequirement("performance", "models/model_performance.pkl"),
+    CacheRequirement("model_metadata", "models/model_metadata.json"),
+    CacheRequirement("model_audit", "precomputed/model-audit/model_ablation.json"),
     CacheRequirement("upcoming_fixtures", "data_files/upcoming_fixtures.csv"),
     CacheRequirement("upcoming_predictions", "data_files/upcoming_predictions.csv"),
 )
@@ -56,12 +58,31 @@ def _validate_prediction_artifacts(root: Path, requirement_names: set[str]) -> N
             f"{len(contract.feature_names)}"
         )
 
+    if "model_metadata" in requirement_names:
+        metadata = json.loads((root / "models" / "model_metadata.json").read_text(encoding="utf-8"))
+        if metadata.get("feature_set") != "no_odds":
+            raise RuntimeError("Production model metadata must declare feature_set 'no_odds'")
+        if metadata.get("feature_policy_version") != FEATURE_POLICY_VERSION:
+            raise RuntimeError("Production model metadata uses a stale feature policy")
+        if tuple(metadata.get("feature_names", ())) != contract.feature_names:
+            raise RuntimeError("Model metadata and precomputed feature contract disagree")
+
+    if "model_audit" in requirement_names:
+        audit = json.loads(
+            (root / "precomputed" / "model-audit" / "model_ablation.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        if audit.get("status") != "complete" or not audit.get("release_gate", {}).get("passed"):
+            raise RuntimeError("Model audit is incomplete or failed its release gate")
+
     import pandas as pd
 
     predictions = pd.read_csv(root / "data_files" / "upcoming_predictions.csv", nrows=5)
     required_columns = {
         "HomeWin_Prob", "Draw_Prob", "AwayWin_Prob", "PredictedResult",
         "Risk_Score", "Confidence_Score", "Risk_Category", "Recommendation",
+        "ModelLean", "ModelLeanProbability", "BetRecommendation", "BetReason",
         "PredictionGeneratedAt",
     }
     missing = required_columns.difference(predictions.columns)

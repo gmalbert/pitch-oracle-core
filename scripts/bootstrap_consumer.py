@@ -15,7 +15,7 @@ from pitch_oracle_core import BUILTIN_LEAGUES  # noqa: E402
 
 
 TEMPLATE_ROOT = CORE_ROOT / "templates" / "consumer"
-TEXT_SUFFIXES = {"", ".md", ".py", ".txt", ".ini", ".yml", ".yaml"}
+TEXT_SUFFIXES = {"", ".md", ".py", ".txt", ".ini", ".yml", ".yaml", ".json"}
 REPOSITORY_SLUGS = {
     "scotland": "scotland-soccer",
     "eredivisie": "netherlands-soccer",
@@ -42,6 +42,25 @@ def repository_slug_for(league_key: str) -> str:
         return REPOSITORY_SLUGS[league_key.lower()]
     except KeyError as exc:
         raise ValueError(f"No country repository name configured for {league_key!r}") from exc
+
+
+def copy_local_environment(
+    destination: str | Path, source_env: str | Path | None = None
+) -> bool:
+    """Copy local secrets into a consumer only when Git explicitly ignores them."""
+    destination = Path(destination)
+    source = Path(source_env) if source_env is not None else CORE_ROOT / ".env"
+    if not source.is_file():
+        return False
+    ignore_path = destination / ".gitignore"
+    ignored = {
+        line.strip() for line in ignore_path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    if ".env" not in ignored:
+        raise RuntimeError("Refusing to copy secrets: consumer .gitignore does not ignore .env")
+    shutil.copy2(source, destination / ".env")
+    return True
 
 
 def bootstrap_consumer(league_key: str, parent: str | Path = "..") -> Path:
@@ -76,6 +95,8 @@ def bootstrap_consumer(league_key: str, parent: str | Path = "..") -> Path:
         content = content.replace("Eredivisie", config.display_name)
         path.write_text(content, encoding="utf-8")
 
+    copy_local_environment(destination)
+
     return destination
 
 
@@ -93,7 +114,11 @@ def main() -> None:
     args = parser.parse_args()
     destination = bootstrap_consumer(args.league_key, args.parent)
     print(f"Created {args.league_key} consumer at {destination}")
-    print("Next: follow README.md in the generated repository.")
+    print("Required next steps:")
+    print(f"  1. cd {destination}")
+    print("  2. Create a virtual environment and install requirements-ci.txt")
+    print("  3. Run: python scripts/bootstrap_local.py")
+    print("  4. Run: python -m pytest -q and browser-test the Predictions page")
 
 
 if __name__ == "__main__":

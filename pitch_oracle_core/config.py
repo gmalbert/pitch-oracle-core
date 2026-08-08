@@ -15,6 +15,7 @@ class DataSourceConfig:
     api_football: bool = True
     understat: bool = False
     weather: bool = True
+    weather_timezone: str = "Europe/London"
     referee: bool = False
     injuries: bool = False
     live_odds_providers: tuple[str, ...] = ()
@@ -26,7 +27,7 @@ class DataSourceConfig:
 
 @dataclass(frozen=True)
 class ThemeConfig:
-    """Consumer-level visual overrides for the shared core theme."""
+    """Legacy consumer-level visual fallbacks for the shared core theme."""
 
     primary: str = "#1554a6"
     primary_dark: str = "#0d2f5f"
@@ -34,6 +35,10 @@ class ThemeConfig:
     page: str = "#ffffff"
     border: str = "#d9e0e8"
     muted: str = "#64748b"
+    # Deprecated compatibility field. Production ignores these values and no
+    # chooser is rendered, but retaining the field keeps older consumers from
+    # failing while they remove their temporary launch configuration.
+    launch_theme_choices: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -64,6 +69,8 @@ class LeagueConfig:
     clubelo_code: str | None
     team_count: int
     season_months: tuple[int, int]
+    country_name: str = ""
+    country_flag: str = "⚽"
     phase: PhaseConfig = field(default_factory=PhaseConfig)
     points_adjustments: dict[str, int] = field(default_factory=dict)
     stadium_coordinates: dict[str, tuple[float, float]] = field(default_factory=dict)

@@ -19,8 +19,9 @@ import warnings
 import time
 from pitch_oracle_core.features import (
     FEATURE_POLICY_VERSION,
-    chronological_split_indices,
-    prematch_feature_columns,
+    chronological_partition_indices,
+    completed_future_rows,
+    no_odds_feature_columns,
 )
 
 warnings.filterwarnings('ignore')
@@ -52,6 +53,14 @@ def precompute_data():
     
     print(f"Loading data from {csv_path}...")
     df = pd.read_csv(csv_path, sep='\t')
+    invalid_future = completed_future_rows(df)
+    if not invalid_future.empty:
+        examples = invalid_future['MatchDate'].astype(str).head(3).tolist()
+        raise ValueError(
+            "Historical data contains completed matches dated in the future "
+            f"({len(invalid_future)} rows; examples: {examples}). Regenerate raw history "
+            "before precomputing model artifacts."
+        )
     initial_rows = len(df)
     print(f"   Loaded {initial_rows:,} rows")
     
@@ -63,7 +72,7 @@ def precompute_data():
     dates = pd.to_datetime(df['MatchDate'], errors='coerce')
     valid_dates = dates.notna()
     df, dates = df.loc[valid_dates].copy(), dates.loc[valid_dates]
-    X = df[prematch_feature_columns(df)]
+    X = df[no_odds_feature_columns(df)]
     y = df['target']
     
     # Process numeric features
@@ -81,7 +90,9 @@ def precompute_data():
     
     # Create train/test split (consistent with app)
     print("Creating train/test split...")
-    train_indices, test_indices = chronological_split_indices(dates, test_size=0.2)
+    train_indices, calibration_indices, test_indices = chronological_partition_indices(
+        dates, calibration_size=0.2, test_size=0.2
+    )
     train_means = X.iloc[train_indices].mean().fillna(0.0)
     imputation_values = {
         source_name: float(train_means.iloc[position])
@@ -91,14 +102,18 @@ def precompute_data():
     X_processed = X.values
     y_processed = y.values
     X_train, X_test = X_processed[train_indices], X_processed[test_indices]
+    X_calibration = X_processed[calibration_indices]
     y_train, y_test = y_processed[train_indices], y_processed[test_indices]
+    y_calibration = y_processed[calibration_indices]
     
     # Package data for saving
     preprocessed_data = {
         'X_train': X_train,
         'X_test': X_test,
+        'X_calibration': X_calibration,
         'y_train': y_train,
         'y_test': y_test,
+        'y_calibration': y_calibration,
         'feature_names': feature_names,
         'feature_contract': {
             'version': FEATURE_POLICY_VERSION,
@@ -110,11 +125,13 @@ def precompute_data():
             'total_samples': len(X_processed),
             'train_samples': len(X_train),
             'test_samples': len(X_test),
+            'calibration_samples': len(X_calibration),
             'num_features': X_processed.shape[1],
             'processed_date': pd.Timestamp.now().isoformat(),
             'source_file': csv_path,
             'feature_policy_version': FEATURE_POLICY_VERSION,
-            'split_strategy': 'chronological',
+            'feature_set': 'no_odds',
+            'split_strategy': 'chronological_train_calibration_test',
         }
     }
     

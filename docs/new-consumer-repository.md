@@ -60,9 +60,13 @@ It creates:
 - immutable runtime and CI dependency pins;
 - pull-request CI and the scheduled artifact workflow;
 - prediction generation and strict artifact verification;
+- an ignored local `.env` copied from the core checkout when present, plus a
+  value-free tracked `.env.example`;
 - tests and tracked artifact-directory placeholders.
 
-Do not copy generated EPL data, models, caches, aliases, branding, or secrets.
+Do not copy generated EPL data, models, caches, aliases, or branding. Provider
+secrets may only be propagated through the generator's ignored `.env` path;
+never place values in the template or a tracked file.
 
 ## 2. Configure GitHub once
 
@@ -72,8 +76,10 @@ coherent cache set. Keep branch protection enabled for human changes; allow the
 repository `GITHUB_TOKEN` to push the scheduled artifact commit according to the
 repository's protection policy.
 
-No secrets are required for the baseline. Add provider secrets only when that
-provider is deliberately enabled in the league configuration and workflow.
+Add the required names from `.env.example` as repository or organization
+secrets. Caller workflows use `secrets: inherit`, while the reusable workflow
+maps known provider names into its process environment. Local `.env` files are
+never uploaded to GitHub Actions.
 
 ## 3. Prove the baseline locally
 
@@ -93,7 +99,28 @@ On Windows PowerShell, replace `./venv/bin/python` with
 The initial tests validate configuration and pin synchronization. Artifact tests
 skip until the first coherent artifact set exists.
 
-## 4. Run the first artifact build
+## 4. Run the required turnkey bootstrap
+
+Before exposing a new consumer or relying on its scheduled workflow, run the
+same full build locally from the committed repository:
+
+```bash
+python scripts/bootstrap_local.py
+```
+
+This command loads the ignored `.env`, sets `PITCH_ORACLE_LEAGUE` from the
+consumer configuration, and runs historical download, fixture fetch, feature
+preparation, chronology/ablation audit, training, database precomputation,
+prediction generation, manifest creation, and strict verification in the
+required order. Do not manually omit or reorder stages.
+
+On Windows, use the virtual environment interpreter explicitly:
+
+```powershell
+venv\Scripts\python scripts\bootstrap_local.py
+```
+
+## 5. Run the first scheduled artifact build
 
 Push the scaffold, open **Actions → Eredivisie artifact pipeline**, and run it
 manually. The reusable workflow performs, in order:
@@ -101,23 +128,25 @@ manually. The reusable workflow performs, in order:
 1. dependency installation and `pip check`;
 2. historical download and upcoming-fixture fetch;
 3. point-in-time feature preparation;
-4. chronological model training;
-5. diagnostics and upcoming prediction generation;
-6. strict cache-manifest creation;
-7. consumer tests;
-8. one atomic artifact commit.
+4. chronology and no-odds baseline release gate;
+5. chronological model training;
+6. diagnostics and upcoming prediction generation;
+7. strict cache-manifest creation, including the audit result;
+8. consumer tests;
+9. one atomic artifact commit.
 
 Never commit a partial manual rebuild. `data_files/`, `models/`, and
 `precomputed/` must advance together under the same core version.
 
-## 5. Acceptance gate
+## 6. Acceptance gate
 
 The consumer is ready to expose when all of these are true:
 
 - CI is green on the initial commit;
 - the manual artifact workflow is green on real upstream data;
-- `precomputed/cache_manifest.json` records `core_version: 1.3.1` and
-  `league: eredivisie`;
+- `precomputed/cache_manifest.json` records the pinned core version and the
+  configured league;
+- `python scripts/bootstrap_local.py` succeeds from a clean consumer checkout;
 - `python scripts/verify_consumer.py` succeeds;
 - the app opens all seven navigation pages without a Streamlit exception;
 - Playwright click-navigation reports no browser console errors;
@@ -126,7 +155,7 @@ The consumer is ready to expose when all of these are true:
 - chronological accuracy and log loss are plausible and recorded, without being
   compared to the old EPL random-split metrics.
 
-## 6. Optional-source promotion rule
+## 7. Optional-source promotion rule
 
 Promote one optional source at a time on a pull request. For each source, document
 coverage, add aliases/configuration, add a failure-mode test, rebuild everything,
@@ -141,7 +170,7 @@ For the Eredivisie, investigate optional sources in this order:
 4. referee and injury coverage;
 5. live odds.
 
-## 7. Core upgrades
+## 8. Core upgrades
 
 Upgrade only to an immutable core release. Change the tag in
 `requirements.txt`, `requirements-ci.txt`, the caller workflow's `uses` line,

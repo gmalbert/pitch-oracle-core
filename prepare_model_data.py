@@ -452,8 +452,12 @@ if LEAGUE_CONFIG.sources.injuries:
 else:
     print(f"Injury data disabled for {LEAGUE_CONFIG.display_name}; skipping")
 
-# Add weather data
-if LEAGUE_CONFIG.sources.weather:
+# Add weather data. Historical backfills can be intentionally disabled when a
+# provider cannot meet the reproducibility/runtime gate for a production build.
+weather_disabled = os.getenv('PITCH_ORACLE_DISABLE_WEATHER', '').lower() in {
+    '1', 'true', 'yes', 'on'
+}
+if LEAGUE_CONFIG.sources.weather and not weather_disabled:
     from fetch_weather_data import add_weather_features, add_weather_impact_category
     print("Adding weather data from Open-Meteo...")
     try:
@@ -464,7 +468,9 @@ if LEAGUE_CONFIG.sources.weather:
                 team: {"lat": coordinates[0], "lon": coordinates[1]}
                 for team, coordinates in LEAGUE_CONFIG.stadium_coordinates.items()
             },
+            cache_file=f"weather_cache_{LEAGUE_CONFIG.key}.csv",
             data_dir=DATA_DIR,
+            timezone=LEAGUE_CONFIG.sources.weather_timezone,
         )
         historical_data_with_calculations = add_weather_impact_category(historical_data_with_calculations)
         print("Weather data integration completed")
@@ -472,7 +478,8 @@ if LEAGUE_CONFIG.sources.weather:
         print(f"Warning: Weather data integration failed: {e}")
         print("Continuing without weather data...")
 else:
-    print(f"Weather data disabled for {LEAGUE_CONFIG.display_name}; skipping")
+    reason = "by build policy" if weather_disabled else "for this league"
+    print(f"Weather data disabled {reason}; skipping")
 
 def calculate_advanced_metrics(df):
     """Calculate advanced team performance metrics from HISTORICAL data only"""

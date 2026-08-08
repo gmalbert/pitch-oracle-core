@@ -54,14 +54,30 @@ def test_upcoming_matrix_uses_explicit_latest_and_imputed_values():
 
 
 def test_prediction_frame_normalizes_and_adds_consumer_fields():
-    upcoming = pd.DataFrame([{"HomeTeam": "A", "AwayTeam": "B"}])
+    upcoming = pd.DataFrame([{"HomeTeam": "A", "AwayTeam": "B", "HomeGoalsAve": 1.4, "AwayGoalsAve": 1.1}])
     result = build_prediction_frame(upcoming, [[68, 23, 9]])
 
     assert result.loc[0, "HomeWin_Prob"] == pytest.approx(0.68)
     assert result.loc[0, "PredictedResult"] == "Home Win"
     assert result.loc[0, "Risk_Category"] in {"Low Risk", "Moderate Risk"}
     assert result.loc[0, "Recommendation"] == "Strong Home Lean"
+    assert result.loc[0, "ModelLean"] == "A"
+    assert result.loc[0, "ModelLeanProbability"] == pytest.approx(0.68)
+    assert result.loc[0, "BetRecommendation"] == "No bet"
+    assert "Market odds unavailable" in result.loc[0, "BetReason"]
+    assert result.loc[0, "Over2_5Prob"] + result.loc[0, "Under2_5Prob"] == pytest.approx(1.0)
+    assert result.loc[0, "ExpectedTotalGoals"] == pytest.approx(2.5)
     assert result.loc[0, "PredictionGeneratedAt"].endswith("+00:00")
+
+
+def test_prediction_frame_uses_xg_features_for_goal_markets():
+    upcoming = pd.DataFrame([{
+        "HomeTeam": "A", "AwayTeam": "B", "HomexG_Avg_L5": 1.6, "AwayxG_Avg_L5": 0.9,
+    }])
+    result = build_prediction_frame(upcoming, [[50, 30, 20]])
+
+    assert result.loc[0, "ExpectedTotalGoals"] == pytest.approx(2.5)
+    assert result.loc[0, "Over2_5Prob"] + result.loc[0, "Under2_5Prob"] == pytest.approx(1.0)
 
 
 def test_prediction_frame_rejects_invalid_shape():

@@ -1,0 +1,3 @@
+# Cache artifact hashes are generated on Linux and validated on every runtime.
+# Keep generated CSVs byte-stable when the repository is checked out on Windows.
+*.csv text eol=lf
