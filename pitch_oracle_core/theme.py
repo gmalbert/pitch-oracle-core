@@ -418,6 +418,13 @@ def apply_theme(config: LeagueConfig) -> None:
             object-position: center;
         }}
 
+        /* The full wordmark contains transparent lettering.  Keep its main
+           header surface light so the artwork stays faithful in dark mode. */
+        [data-testid="stMain"] [data-testid="stImage"] {{
+            background: #ffffff;
+            border-radius: 12px;
+        }}
+
         [data-testid="stMetric"] {{
             background: var(--pitch-card);
             border: 1px solid var(--pitch-card-border);
@@ -471,6 +478,22 @@ def apply_theme(config: LeagueConfig) -> None:
             color: var(--pitch-primary-dark);
         }}
 
+        [data-testid="stDownloadButton"] > button {{
+            border-color: var(--pitch-primary);
+            color: var(--pitch-primary-dark);
+            background: transparent;
+            border-radius: 7px;
+        }}
+
+        [data-testid="stDownloadButton"] > button:hover {{
+            border-color: var(--pitch-primary-dark);
+            color: var(--pitch-primary-dark);
+        }}
+
+        [data-testid="stDownloadButton"] > button * {{
+            color: inherit;
+        }}
+
         /* ── Mode-aware component text (vars flip between light and dark) ── */
         [data-testid="stAppViewContainer"] [data-testid="stSidebar"] {{
             color: var(--pitch-text);
@@ -491,6 +514,22 @@ def apply_theme(config: LeagueConfig) -> None:
 
         .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {{
             color: var(--pitch-primary-dark);
+        }}
+
+        /* st.segmented_control renders as a button group rather than .stTabs. */
+        [data-testid="stButtonGroup"] [data-variant="segmented_control"] {{
+            color: var(--pitch-text-soft);
+            background: var(--pitch-card);
+            border-color: var(--pitch-card-border);
+        }}
+
+        [data-testid="stButtonGroup"] [data-variant="segmented_control"] * {{
+            color: inherit;
+        }}
+
+        [data-testid="stButtonGroup"] [data-variant="segmented_control"][aria-checked="true"] {{
+            color: var(--pitch-primary-dark);
+            background: var(--pitch-active-bg);
         }}
 
         label,
