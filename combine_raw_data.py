@@ -7,6 +7,7 @@ import os
 import pandas as pd
 
 from pitch_oracle_core.config import LeagueConfig
+from pitch_oracle_core.features import parse_match_dates
 from pitch_oracle_core.leagues import get_league_config
 
 
@@ -30,6 +31,12 @@ def combine_raw_data(
         url = f"https://www.football-data.co.uk/mmz4281/{season}/{config.football_data_div}.csv"
         try:
             frame = pd.read_csv(url)
+            if "Date" not in frame:
+                raise ValueError(f"Downloaded season {season} has no Date column")
+            parsed_dates = parse_match_dates(frame["Date"])
+            if parsed_dates.isna().any():
+                raise ValueError(f"Downloaded season {season} contains invalid match dates")
+            frame["Date"] = parsed_dates.dt.strftime("%Y-%m-%d")
             frame["League"] = config.key
             frames.append(frame)
         except Exception as exc:

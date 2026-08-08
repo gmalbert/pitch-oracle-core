@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from .features import FEATURE_POLICY_VERSION
+from .goal_markets import calculate_goal_markets
 from .risk import calculate_prediction_risk, get_prediction_guidance, get_risk_category
 
 
@@ -142,7 +143,17 @@ def build_prediction_frame(
     result = upcoming.copy()
     result[["HomeWin_Prob", "Draw_Prob", "AwayWin_Prob"]] = probability_array
     labels = np.asarray(["Home Win", "Draw", "Away Win"])
-    result["PredictedResult"] = labels[np.argmax(probability_array, axis=1)]
+    best_indices = np.argmax(probability_array, axis=1)
+    result["PredictedResult"] = labels[best_indices]
+    result["ModelLean"] = [
+        str(result.iloc[position]["HomeTeam"])
+        if best_index == 0
+        else str(result.iloc[position]["AwayTeam"])
+        if best_index == 2
+        else "Draw"
+        for position, best_index in enumerate(best_indices)
+    ]
+    result["ModelLeanProbability"] = probability_array.max(axis=1)
 
     risks, confidences, categories, guidance = [], [], [], []
     for row in probability_array:
@@ -157,5 +168,48 @@ def build_prediction_frame(
     result["Confidence_Score"] = confidences
     result["Risk_Category"] = categories
     result["Recommendation"] = guidance
+    result["BetRecommendation"] = "No bet"
+    result["BetReason"] = "Market odds unavailable; betting value cannot be established."
+    add_goal_market_predictions(result)
     result["PredictionGeneratedAt"] = pd.Timestamp.now(tz="UTC").isoformat()
     return result
+
+
+def add_goal_market_predictions(result: pd.DataFrame) -> None:
+    """Add common goal-market probabilities when expected goals are available.
+
+    The consumer cache may contain either model-derived expected goals or the
+    historical feature averages used by the model.  If neither pair exists,
+    the 1X2 prediction contract remains unchanged and the UI simply omits the
+    optional goal-market columns.
+    """
+    goal_columns = (
+        ("Expected_Home_Goals", "Expected_Away_Goals"),
+        ("Model_Expected_Home_Goals", "Model_Expected_Away_Goals"),
+        ("ExpectedHomeGoals", "ExpectedAwayGoals"),
+        ("HomeGoalsAve", "AwayGoalsAve"),
+        ("HomexG_Avg_L5", "AwayxG_Avg_L5"),
+    )
+    source = next(
+        ((home, away) for home, away in goal_columns if home in result and away in result),
+        None,
+    )
+    if source is None:
+        return
+
+    home_goals = pd.to_numeric(result[source[0]], errors="coerce")
+    away_goals = pd.to_numeric(result[source[1]], errors="coerce")
+    market_rows = []
+    for home, away in zip(home_goals, away_goals):
+        if pd.isna(home) or pd.isna(away) or home < 0 or away < 0:
+            market_rows.append({})
+            continue
+        market_rows.append(calculate_goal_markets(float(home), float(away), lines=(2.5,)).as_dict())
+
+    market_frame = pd.DataFrame(market_rows, index=result.index)
+    for column in (
+        "ExpectedTotalGoals", "Over2_5Prob", "Under2_5Prob", "BTTSProb",
+        "MostLikelyScore",
+    ):
+        if column in market_frame:
+            result[column] = market_frame[column]

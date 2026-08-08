@@ -59,3 +59,28 @@ def test_weather_requests_use_the_configured_timezone_and_cache_file(monkeypatch
 
     assert calls == [("Ajax", "Europe/Amsterdam")]
     assert (tmp_path / "weather_cache_eredivisie.csv").is_file()
+
+
+def test_weather_accepts_upcoming_fixture_date_column(monkeypatch, tmp_path):
+    calls = []
+
+    def available(stadium, match_date, *, stadium_coords=None, raise_on_error=False, timezone=""):
+        calls.append((stadium, match_date))
+        return {
+            "Temperature": 18, "Humidity": 65, "WindSpeed": 4,
+            "Precipitation": 0.3, "WeatherCondition": "Partly cloudy",
+            "WeatherDescription": "Partly cloudy",
+        }
+
+    fixtures = pd.DataFrame([{"HomeTeam": "Ajax", "Date": "2099-08-08"}])
+    result = weather.add_weather_features(
+        fixtures,
+        stadium_map={"Ajax": "Ajax"},
+        stadium_coords={"Ajax": {"lat": 52.3140, "lon": 4.9414}},
+        data_dir=str(tmp_path),
+        fetcher=available,
+    )
+
+    assert calls == [("Ajax", "2099-08-08")]
+    assert result.loc[0, "WeatherDescription"] == "Partly cloudy"
+    assert result.loc[0, "Temperature"] == 18

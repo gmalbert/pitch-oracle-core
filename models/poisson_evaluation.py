@@ -6,8 +6,14 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, accuracy_sc
 from .poisson_predictor import PoissonPredictor
 
 
-def walk_forward_expectations(df: pd.DataFrame, prior_rate: float = 1.4) -> tuple[np.ndarray, np.ndarray, list[tuple[float, float, float]]]:
-    """Generate point-in-time Poisson forecasts, updating rates after each match."""
+def walk_forward_expectations(
+    df: pd.DataFrame,
+    prior_rate: float = 1.4,
+    *,
+    league_prior_matches: float = 20.0,
+    team_prior_matches: float = 5.0,
+) -> tuple[np.ndarray, np.ndarray, list[tuple[float, float, float]]]:
+    """Generate point-in-time Poisson forecasts with stable empirical priors."""
     required = {
         'HomeTeam', 'AwayTeam', 'FullTimeHomeGoals', 'FullTimeAwayGoals',
     }
@@ -29,9 +35,12 @@ def walk_forward_expectations(df: pd.DataFrame, prior_rate: float = 1.4) -> tupl
     predictor = PoissonPredictor()
     home_expected, away_expected, outcome_probabilities = [], [], []
 
+    if prior_rate <= 0 or league_prior_matches <= 0 or team_prior_matches <= 0:
+        raise ValueError("Poisson prior rates and weights must be positive")
+
     def average(store: dict[str, list[float]], team: str, fallback: float) -> float:
         total, count = store.get(team, [0.0, 0.0])
-        return total / count if count else fallback
+        return (total + fallback * team_prior_matches) / (count + team_prior_matches)
 
     def update(store: dict[str, list[float]], team: str, value: float) -> None:
         totals = store.setdefault(team, [0.0, 0.0])
@@ -40,7 +49,9 @@ def walk_forward_expectations(df: pd.DataFrame, prior_rate: float = 1.4) -> tupl
 
     for _, row in working.iterrows():
         home, away = str(row['HomeTeam']), str(row['AwayTeam'])
-        league_rate = total_goals / (2 * matches_seen) if matches_seen else prior_rate
+        league_rate = (
+            total_goals + 2 * prior_rate * league_prior_matches
+        ) / (2 * (matches_seen + league_prior_matches))
         predictor.league_avg_goals = league_rate
         home_rate, away_rate = predictor.estimate_goals(
             average(home_for, home, league_rate),
@@ -106,6 +117,11 @@ def evaluate_poisson_dataframe(df: pd.DataFrame) -> dict:
         'brier_draw': brier_score_loss(y_draw, prob_array[:, 1]),
         'brier_away': brier_score_loss(y_away_win, prob_array[:, 2]),
     }
+    from pitch_oracle_core.model_audit import probability_metrics
+    metrics.update({
+        f"outcome_{name}": value
+        for name, value in probability_metrics(y_outcome, prob_array).items()
+    })
     return metrics
 
 

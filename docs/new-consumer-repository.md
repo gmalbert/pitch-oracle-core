@@ -60,9 +60,13 @@ It creates:
 - immutable runtime and CI dependency pins;
 - pull-request CI and the scheduled artifact workflow;
 - prediction generation and strict artifact verification;
+- an ignored local `.env` copied from the core checkout when present, plus a
+  value-free tracked `.env.example`;
 - tests and tracked artifact-directory placeholders.
 
-Do not copy generated EPL data, models, caches, aliases, branding, or secrets.
+Do not copy generated EPL data, models, caches, aliases, or branding. Provider
+secrets may only be propagated through the generator's ignored `.env` path;
+never place values in the template or a tracked file.
 
 ## 2. Configure GitHub once
 
@@ -72,8 +76,10 @@ coherent cache set. Keep branch protection enabled for human changes; allow the
 repository `GITHUB_TOKEN` to push the scheduled artifact commit according to the
 repository's protection policy.
 
-No secrets are required for the baseline. Add provider secrets only when that
-provider is deliberately enabled in the league configuration and workflow.
+Add the required names from `.env.example` as repository or organization
+secrets. Caller workflows use `secrets: inherit`, while the reusable workflow
+maps known provider names into its process environment. Local `.env` files are
+never uploaded to GitHub Actions.
 
 ## 3. Prove the baseline locally
 
@@ -102,10 +108,11 @@ same full build locally from the committed repository:
 python scripts/bootstrap_local.py
 ```
 
-This command sets `PITCH_ORACLE_LEAGUE` from the consumer configuration and
-runs historical download, fixture fetch, feature preparation, training,
-database precomputation, prediction generation, manifest creation, and strict
-verification in the required order. Do not manually omit or reorder stages.
+This command loads the ignored `.env`, sets `PITCH_ORACLE_LEAGUE` from the
+consumer configuration, and runs historical download, fixture fetch, feature
+preparation, chronology/ablation audit, training, database precomputation,
+prediction generation, manifest creation, and strict verification in the
+required order. Do not manually omit or reorder stages.
 
 On Windows, use the virtual environment interpreter explicitly:
 
@@ -121,11 +128,12 @@ manually. The reusable workflow performs, in order:
 1. dependency installation and `pip check`;
 2. historical download and upcoming-fixture fetch;
 3. point-in-time feature preparation;
-4. chronological model training;
-5. diagnostics and upcoming prediction generation;
-6. strict cache-manifest creation;
-7. consumer tests;
-8. one atomic artifact commit.
+4. chronology and no-odds baseline release gate;
+5. chronological model training;
+6. diagnostics and upcoming prediction generation;
+7. strict cache-manifest creation, including the audit result;
+8. consumer tests;
+9. one atomic artifact commit.
 
 Never commit a partial manual rebuild. `data_files/`, `models/`, and
 `precomputed/` must advance together under the same core version.

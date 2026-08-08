@@ -46,22 +46,28 @@ def fetch_match_weather(
     timezone: str = "Europe/London",
     client=None,
 ) -> dict | None:
-    """Fetch historical weather for a stadium/date from Open-Meteo."""
+    """Fetch observed or forecast weather for a stadium/date from Open-Meteo."""
     date = match_date.strftime("%Y-%m-%d") if hasattr(match_date, "strftime") else str(match_date).split(" ")[0]
     coords = (stadium_coords or {}).get(stadium_location)
     if not coords:
         return None
 
     try:
+        match_day = pd.Timestamp(date).date()
+        endpoint = (
+            "https://api.open-meteo.com/v1/forecast"
+            if match_day >= datetime.now().date()
+            else "https://archive-api.open-meteo.com/v1/archive"
+        )
         params = {
             "latitude": coords["lat"], "longitude": coords["lon"],
             "start_date": date, "end_date": date,
             "hourly": ["temperature_2m", "precipitation", "relative_humidity_2m", "wind_speed_10m"],
-            "daily": ["weathercode"], "temperature_unit": "celsius",
+            "daily": ["weather_code"], "temperature_unit": "celsius",
             "wind_speed_unit": "ms", "timezone": timezone,
         }
         response = (client or _client()).weather_api(
-            "https://archive-api.open-meteo.com/v1/archive", params=params
+            endpoint, params=params
         )[0]
         hourly = response.Hourly()
         values = [hourly.Variables(i).ValuesAsNumpy() for i in range(4)]
@@ -69,7 +75,7 @@ def fetch_match_weather(
             start=pd.to_datetime(hourly.Time(), unit="s", utc=True),
             end=pd.to_datetime(hourly.TimeEnd(), unit="s", utc=True),
             freq=pd.Timedelta(seconds=hourly.Interval()), inclusive="left",
-        ).hour
+        ).tz_convert(timezone).hour
         if not len(hours):
             return None
         index = min(range(len(hours)), key=lambda i: abs(hours[i] - 16))
@@ -105,7 +111,10 @@ def add_weather_features(
     timezone: str = "Europe/London",
     fetcher=None,
 ) -> pd.DataFrame:
-    """Add cached historical weather features using league-supplied coordinates."""
+    """Add cached observed or forecast weather using league-supplied coordinates."""
+    date_column = "MatchDate" if "MatchDate" in df.columns else "Date" if "Date" in df.columns else None
+    if date_column is None:
+        raise ValueError("Weather enrichment requires a MatchDate or Date column")
     cache_path = Path(data_dir) / cache_file
     try:
         cached = pd.read_csv(cache_path) if cache_path.exists() else pd.DataFrame()
@@ -116,10 +125,14 @@ def add_weather_features(
     for _, match in df.iterrows():
         stadium = (stadium_map or {}).get(match.get("HomeTeam"))
         if pd.notna(stadium):
-            date = pd.Timestamp(match["MatchDate"]).strftime("%Y-%m-%d")
+            match_day = pd.Timestamp(match[date_column]).date()
+            date = match_day.strftime("%Y-%m-%d")
             key = f"{match['HomeTeam']}_{date}"
-            if key not in cached_keys:
-                requests.append((stadium, match["MatchDate"], key))
+            # Forecasts change as kickoff approaches, so refresh future rows on
+            # every artifact build while retaining the last successful value
+            # if the provider is temporarily unavailable.
+            if key not in cached_keys or match_day >= datetime.now().date():
+                requests.append((stadium, match[date_column], key))
 
     fetcher = fetcher or fetch_match_weather
     new_rows = []
@@ -136,7 +149,9 @@ def add_weather_features(
         if weather:
             new_rows.append({**weather, "cache_key": key, "stadium": stadium})
     if new_rows:
-        combined = pd.concat([cached, pd.DataFrame(new_rows)], ignore_index=True).drop_duplicates("cache_key")
+        combined = pd.concat([cached, pd.DataFrame(new_rows)], ignore_index=True).drop_duplicates(
+            "cache_key", keep="last"
+        )
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         combined.to_csv(cache_path, index=False)
         cached = combined
@@ -145,7 +160,7 @@ def add_weather_features(
         return pd.concat([df.reset_index(drop=True), _empty_features(len(df))], axis=1)
     features = []
     for _, match in df.iterrows():
-        key = f"{match['HomeTeam']}_{pd.Timestamp(match['MatchDate']).strftime('%Y-%m-%d')}"
+        key = f"{match['HomeTeam']}_{pd.Timestamp(match[date_column]).strftime('%Y-%m-%d')}"
         rows = cached[cached["cache_key"] == key]
         if rows.empty:
             features.append(_empty_features(1).iloc[0].to_dict())

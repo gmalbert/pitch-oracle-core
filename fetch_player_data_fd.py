@@ -1,7 +1,22 @@
+import os
 import requests
 import pandas as pd
+from dotenv import load_dotenv
 
-API_KEY = 'your_api_key'  # Get from https://www.football-data.org/
+load_dotenv()
+API_KEY = (
+    os.getenv("FD_API_KEY")
+    or os.getenv("FOOTBALL_DATA_API_KEY")
+    or os.getenv("FOOTBALL_DATA_ORG_API_KEY")
+)
+
+
+def _headers():
+    if not API_KEY:
+        raise RuntimeError(
+            "FD_API_KEY is required in the environment or local .env file"
+        )
+    return {'X-Auth-Token': API_KEY}
 
 def fetch_team_players(team_name):
     """
@@ -9,7 +24,7 @@ def fetch_team_players(team_name):
     Note: Injuries not directly available in free API, this gets basic player info
     """
     
-    headers = {'X-Auth-Token': API_KEY}
+    headers = _headers()
     
     try:
         # First, get PL competition teams

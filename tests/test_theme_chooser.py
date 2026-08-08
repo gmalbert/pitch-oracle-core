@@ -1,91 +1,34 @@
+from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
 from streamlit.testing.v1 import AppTest
 
 from pitch_oracle_core.cache import CacheRequirement, write_cache_manifest
-from pitch_oracle_core.config import LeagueConfig, ThemeConfig
-from pitch_oracle_core.theme import LAUNCH_THEMES
+from pitch_oracle_core.config import ThemeConfig
+from pitch_oracle_core.theme import (
+    DAY_THEME_NAME,
+    LAUNCH_THEMES,
+    NIGHT_THEME_NAME,
+    _browser_local_hour,
+    _theme_name_for_hour,
+)
+
 
 THEME_FIELDS = {"primary", "primary_dark", "sidebar", "page", "border", "muted"}
-
-
-def test_palette_registry_covers_every_field():
-    assert LAUNCH_THEMES
-    for name, palette in LAUNCH_THEMES.items():
-        assert set(palette) == THEME_FIELDS, f"{name} is missing fields"
-        for value in palette.values():
-            assert value.startswith("#") and len(value) == 7, f"{name} {value} is not a hex color"
 
 
 def _css(app) -> str:
     return "\n".join(markdown.value for markdown in app.markdown if "<style>" in markdown.value)
 
 
-def test_dark_palette_switches_text_vars_to_light(tmp_path, monkeypatch):
-    artifact = tmp_path / "data" / "ready.txt"
-    artifact.parent.mkdir()
-    artifact.write_text("ready", encoding="utf-8")
-    write_cache_manifest(
-        tmp_path,
-        requirements=(CacheRequirement("ready", "data/ready.txt"),),
-        league="test",
-    )
-    entrypoint = _write_entrypoint(tmp_path)
-    monkeypatch.chdir(tmp_path)
-
-    app = AppTest.from_file(entrypoint, default_timeout=30).run()
-    assert not app.exception
-
-    # Find a Nighttime palette and switch to it.
-    dark_name = next(name for name in LAUNCH_THEMES if name.startswith("🌙"))
-    app.sidebar.selectbox[0].set_value(dark_name).run()
-    assert not app.exception
-
-    css = _css(app)
-    # Dark palettes must render light body text and dark cards.
-    assert "--pitch-text: #e8ecf2" in css
-    assert "--pitch-card: #14181f" in css
-    assert "--pitch-header-bg: #1a2029" in css
-    assert '[data-testid="stHeader"]' in css
-    assert 'background: var(--pitch-page) !important' in css
-    # The palette's own colors still apply.
-    assert f"--pitch-primary: {LAUNCH_THEMES[dark_name]['primary']}" in css
-    assert f"--pitch-page: {LAUNCH_THEMES[dark_name]['page']}" in css
-
-
-def test_light_palette_keeps_dark_text_vars(tmp_path, monkeypatch):
-    artifact = tmp_path / "data" / "ready.txt"
-    artifact.parent.mkdir()
-    artifact.write_text("ready", encoding="utf-8")
-    write_cache_manifest(
-        tmp_path,
-        requirements=(CacheRequirement("ready", "data/ready.txt"),),
-        league="test",
-    )
-    entrypoint = _write_entrypoint(tmp_path)
-    monkeypatch.chdir(tmp_path)
-
-    app = AppTest.from_file(entrypoint, default_timeout=30).run()
-    assert not app.exception
-
-    light_name = next(name for name in LAUNCH_THEMES if name.startswith("☀️"))
-    app.sidebar.selectbox[0].set_value(light_name).run()
-    assert not app.exception
-
-    css = _css(app)
-    assert "--pitch-text: #31333f" in css
-    assert "--pitch-card: #f8fafc" in css
-    assert "--pitch-header-bg: #eef3f8" in css
-    assert '[data-testid="stHeader"]' in css
-    assert 'background-color: var(--pitch-page) !important' in css
-
-
-def _write_entrypoint(tmp_path: Path) -> Path:
+def _write_entrypoint(tmp_path: Path, local_hour: int) -> Path:
     entrypoint = tmp_path / "predictions.py"
     entrypoint.write_text(
-        "from pitch_oracle_core.config import LeagueConfig, ThemeConfig\n"
-        "from pitch_oracle_core.theme import LAUNCH_THEMES\n"
+        "from pitch_oracle_core.config import LeagueConfig\n"
+        "from pitch_oracle_core import theme\n"
         "from pitch_oracle_core.app_factory import run\n"
+        f"theme._browser_local_hour = lambda: {local_hour}\n"
         "run(LeagueConfig(\n"
         "    key='test',\n"
         "    display_name='Test League',\n"
@@ -94,14 +37,13 @@ def _write_entrypoint(tmp_path: Path) -> Path:
         "    clubelo_code='TEST_1',\n"
         "    team_count=18,\n"
         "    season_months=(8, 5),\n"
-        "    theme=ThemeConfig(launch_theme_choices=tuple(LAUNCH_THEMES)),\n"
-        "), root=r'{root}')\n".format(root=tmp_path),
+        f"), root=r'{tmp_path}')\n",
         encoding="utf-8",
     )
     return entrypoint
 
 
-def test_theme_chooser_applies_selected_palette(tmp_path, monkeypatch):
+def _run_app(tmp_path: Path, monkeypatch, local_hour: int):
     artifact = tmp_path / "data" / "ready.txt"
     artifact.parent.mkdir()
     artifact.write_text("ready", encoding="utf-8")
@@ -110,57 +52,68 @@ def test_theme_chooser_applies_selected_palette(tmp_path, monkeypatch):
         requirements=(CacheRequirement("ready", "data/ready.txt"),),
         league="test",
     )
-    entrypoint = _write_entrypoint(tmp_path)
+    entrypoint = _write_entrypoint(tmp_path, local_hour)
     monkeypatch.chdir(tmp_path)
-
-    app = AppTest.from_file(entrypoint, default_timeout=30).run()
-
-    assert not app.exception
-    # The chooser is rendered in the sidebar.
-    labels = [select.label for select in app.sidebar.selectbox]
-    assert any("theme" in label.lower() for label in labels)
-    # The default palette (first choice) is applied on first load.
-    first = app.sidebar.selectbox[0]
-    assert first.value == list(LAUNCH_THEMES)[0]
-    combined_css = "\n".join(markdown.value for markdown in app.markdown if "<style>" in markdown.value)
-    assert f"--pitch-primary: {LAUNCH_THEMES[list(LAUNCH_THEMES)[0]]['primary']}" in combined_css
-
-    # Pick a different theme and re-run: the palette must change.
-    selected = list(LAUNCH_THEMES)[1]
-    first.set_value(selected).run()
-    assert not app.exception
-    combined_css = "\n".join(markdown.value for markdown in app.markdown if "<style>" in markdown.value)
-    assert f"--pitch-primary: {LAUNCH_THEMES[selected]['primary']}" in combined_css
-    assert f"--pitch-sidebar: {LAUNCH_THEMES[selected]['sidebar']}" in combined_css
+    return AppTest.from_file(entrypoint, default_timeout=30).run()
 
 
-def test_theme_chooser_absent_without_choices(tmp_path, monkeypatch):
-    artifact = tmp_path / "data" / "ready.txt"
-    artifact.parent.mkdir()
-    artifact.write_text("ready", encoding="utf-8")
-    write_cache_manifest(
-        tmp_path,
-        requirements=(CacheRequirement("ready", "data/ready.txt"),),
-        league="test",
-    )
-    entrypoint = tmp_path / "predictions.py"
-    entrypoint.write_text(
-        "from pitch_oracle_core.config import LeagueConfig\n"
-        "from pitch_oracle_core.app_factory import run\n"
-        "run(LeagueConfig(\n"
-        "    key='test',\n"
-        "    display_name='Test League',\n"
-        "    football_data_div='T0',\n"
-        "    espn_slug='test.1',\n"
-        "    clubelo_code='TEST_1',\n"
-        "    team_count=18,\n"
-        "    season_months=(8, 5),\n"
-        "), root=r'{root}')\n".format(root=tmp_path),
-        encoding="utf-8",
-    )
-    monkeypatch.chdir(tmp_path)
+def test_production_palettes_cover_every_theme_field():
+    for name in (DAY_THEME_NAME, NIGHT_THEME_NAME):
+        palette = LAUNCH_THEMES[name]
+        assert set(palette) == THEME_FIELDS
+        for value in palette.values():
+            assert value.startswith("#") and len(value) == 7
 
-    app = AppTest.from_file(entrypoint, default_timeout=30).run()
+
+def test_legacy_theme_choices_remain_accepted_but_are_not_used():
+    assert ThemeConfig(launch_theme_choices=("Old chooser value",)).launch_theme_choices
+
+
+@pytest.mark.parametrize(
+    ("hour", "expected"),
+    ((0, NIGHT_THEME_NAME), (6, NIGHT_THEME_NAME), (7, DAY_THEME_NAME),
+     (18, DAY_THEME_NAME), (19, NIGHT_THEME_NAME), (23, NIGHT_THEME_NAME)),
+)
+def test_theme_follows_browser_local_hour(hour, expected):
+    assert _theme_name_for_hour(hour) == expected
+
+
+def test_theme_rejects_invalid_hour():
+    with pytest.raises(ValueError, match="between 0 and 23"):
+        _theme_name_for_hour(24)
+
+
+def test_browser_timezone_and_offset_are_supported():
+    noon_utc = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
+
+    assert _browser_local_hour(now_utc=noon_utc, timezone_name="America/New_York") == 7
+    assert _browser_local_hour(
+        now_utc=noon_utc,
+        timezone_name="Invalid/Timezone",
+        timezone_offset_minutes=300,
+    ) == 7
+
+
+def test_daytime_app_uses_blue_sky_ledger_without_chooser(tmp_path, monkeypatch):
+    app = _run_app(tmp_path, monkeypatch, local_hour=12)
 
     assert not app.exception
     assert not app.sidebar.selectbox
+    css = _css(app)
+    palette = LAUNCH_THEMES[DAY_THEME_NAME]
+    assert f"--pitch-primary: {palette['primary']}" in css
+    assert f"--pitch-page: {palette['page']}" in css
+    assert "--pitch-text: #31333f" in css
+
+
+def test_nighttime_app_uses_blue_hour_without_chooser(tmp_path, monkeypatch):
+    app = _run_app(tmp_path, monkeypatch, local_hour=22)
+
+    assert not app.exception
+    assert not app.sidebar.selectbox
+    css = _css(app)
+    palette = LAUNCH_THEMES[NIGHT_THEME_NAME]
+    assert f"--pitch-primary: {palette['primary']}" in css
+    assert f"--pitch-page: {palette['page']}" in css
+    assert "--pitch-text: #e8ecf2" in css
+    assert "--pitch-card: #14181f" in css

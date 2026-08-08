@@ -7,6 +7,7 @@ from os import path
 import streamlit as st
 
 from .config import LeagueConfig
+from .footer import render_footer
 from .ui_pages import (
     render_model_lab,
     render_overview,
@@ -26,26 +27,14 @@ def render_sidebar_branding(config: LeagueConfig, *, show_logo: bool = True) -> 
     elif show_logo:
         st.sidebar.markdown("## ⚽ Pitch Oracle")
 
-    if config.theme.launch_theme_choices:
-        st.sidebar.divider()
-        st.sidebar.caption("Temporary launch-theme chooser")
-        st.sidebar.selectbox(
-            "Choose a theme to implement",
-            config.theme.launch_theme_choices,
-            key=f"{config.key}_launch_theme_choice",
-            help="Choose one option. This chooser will be removed once the selected theme is implemented.",
-        )
-        # apply_theme runs in the entrypoint before this sidebar renders, so a
-        # theme change must be detected here and the app re-run to restyle.
-        applied_key = f"{config.key}_launch_theme_choice_applied"
-        choice = st.session_state[f"{config.key}_launch_theme_choice"]
-        if choice != st.session_state.get(applied_key):
-            st.session_state[applied_key] = choice
-            st.rerun()
-
-
 def build_navigation(config: LeagueConfig):
     """Build the sidebar navigation with explicit icons and ASCII-safe pages."""
+    def with_footer(page):
+        def wrapped_page() -> None:
+            page()
+            render_footer()
+        return wrapped_page
+
     def overview_page() -> None:
         render_overview(config)
 
@@ -71,7 +60,7 @@ def build_navigation(config: LeagueConfig):
         {
             "": [
                 st.Page(
-                    overview_page,
+                    with_footer(overview_page),
                     title="Overview",
                     icon="🏠",
                     url_path="overview",
@@ -79,19 +68,19 @@ def build_navigation(config: LeagueConfig):
                 ),
             ],
             "Match Center": [
-                st.Page(predictions_page, title="Predictions", icon="🎯", url_path="predictions"),
-                st.Page(standings_page, title="Standings", icon="🏆", url_path="standings"),
+                st.Page(with_footer(predictions_page), title="Predictions", icon="🎯", url_path="predictions"),
+                st.Page(with_footer(standings_page), title="Standings", icon="🏆", url_path="standings"),
                 st.Page(
-                    team_deep_dive_page,
+                    with_footer(team_deep_dive_page),
                     title="Team Deep Dive",
                     icon="🔎",
                     url_path="team-deep-dive",
                 ),
             ],
             "Analysis": [
-                st.Page(statistics_page, title="Statistics", icon="📊", url_path="statistics"),
-                st.Page(model_lab_page, title="Model Lab", icon="🧠", url_path="model-lab"),
-                st.Page(raw_data_page, title="Raw Data", icon="🗃️", url_path="raw-data"),
+                st.Page(with_footer(statistics_page), title="Statistics", icon="📊", url_path="statistics"),
+                st.Page(with_footer(model_lab_page), title="Model Lab", icon="🧠", url_path="model-lab"),
+                st.Page(with_footer(raw_data_page), title="Raw Data", icon="🗃️", url_path="raw-data"),
             ],
         }
     )

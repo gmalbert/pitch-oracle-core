@@ -31,10 +31,22 @@ _EREDIVISIE_SOURCES = DataSourceConfig(
     injuries=False,
     weather_timezone="Europe/Amsterdam",
 )
+_EREDIVISIE_TEAM_ALIASES = {
+    "Ajax Amsterdam": "Ajax",
+    "FC Groningen": "Groningen",
+    "FC Twente": "Twente",
+    "FC Utrecht": "Utrecht",
+    "Feyenoord Rotterdam": "Feyenoord",
+    "Fortuna Sittard": "For Sittard",
+    "NEC Nijmegen": "Nijmegen",
+    "PEC Zwolle": "Zwolle",
+    "SC Cambuur": "Cambuur",
+}
 _EREDIVISIE_STADIUMS = {
     # Current and recent Eredivisie clubs. Historical aliases are included so
     # the weather backfill can cover the full data set, not only current fixtures.
     "Ajax": (52.3140, 4.9414),
+    "ADO Den Haag": (52.0628, 4.3832),
     "AZ Alkmaar": (52.6125, 4.7415),
     "Almere City": (52.3505, 5.2647),
     "Cambuur": (53.2013, 5.7998),
@@ -82,6 +94,7 @@ BUILTIN_LEAGUES = {
         "eredivisie", "Eredivisie", "N1", "ned.1", "NED_1", 18, (8, 5),
         country_name="Netherlands", country_flag="🇳🇱",
         phase=PhaseConfig(playoffs=(PlayoffConfig("european_qualification"),)),
+        team_aliases=_EREDIVISIE_TEAM_ALIASES,
         stadium_coordinates=_EREDIVISIE_STADIUMS, sources=_EREDIVISIE_SOURCES,
     ),
     "portugal": LeagueConfig("portugal", "Primeira Liga", "P1", None, "POR_1", 18, (8, 5),

@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from pitch_oracle_core.cache import CacheRequirement, validate_cache, write_cache_manifest
+from pitch_oracle_core._version import __version__
 from pitch_oracle_core.features import FEATURE_POLICY_VERSION
 
 
@@ -20,7 +21,7 @@ def test_cache_manifest_round_trip(tmp_path):
 
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     assert payload["schema_version"] == 2
-    assert payload["core_version"] == "1.3.14"
+    assert payload["core_version"] == __version__
     assert payload["feature_policy_version"] >= 2
     assert payload["league"] == "test"
     assert payload["artifacts"]["fixture"]["bytes"] == 6
@@ -82,6 +83,7 @@ def _write_prediction_contract_files(root, model_width=1):
     pd.DataFrame(columns=[
         "HomeWin_Prob", "Draw_Prob", "AwayWin_Prob", "PredictedResult",
         "Risk_Score", "Confidence_Score", "Risk_Category", "Recommendation",
+        "ModelLean", "ModelLeanProbability", "BetRecommendation", "BetReason",
         "PredictionGeneratedAt",
     ]).to_csv(root / "data_files" / "upcoming_predictions.csv", index=False)
 
@@ -117,3 +119,34 @@ def test_manifest_requires_a_league_identity(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="league key"):
         write_cache_manifest(tmp_path, requirements=requirements)
+
+
+def test_manifest_rejects_market_aware_production_metadata(tmp_path):
+    _write_prediction_contract_files(tmp_path)
+    metadata_path = tmp_path / "models" / "model_metadata.json"
+    metadata_path.write_text(json.dumps({
+        "feature_set": "odds_heavy",
+        "feature_policy_version": FEATURE_POLICY_VERSION,
+        "feature_names": ["Form"],
+    }), encoding="utf-8")
+    requirements = _prediction_requirements() + (
+        CacheRequirement("model_metadata", "models/model_metadata.json"),
+    )
+
+    with pytest.raises(RuntimeError, match="feature_set 'no_odds'"):
+        write_cache_manifest(tmp_path, requirements=requirements, league="test")
+
+
+def test_manifest_rejects_a_failed_model_audit(tmp_path):
+    _write_prediction_contract_files(tmp_path)
+    audit_path = tmp_path / "precomputed" / "model-audit" / "model_ablation.json"
+    audit_path.parent.mkdir()
+    audit_path.write_text(json.dumps({
+        "status": "complete", "release_gate": {"passed": False},
+    }), encoding="utf-8")
+    requirements = _prediction_requirements() + (
+        CacheRequirement("model_audit", "precomputed/model-audit/model_ablation.json"),
+    )
+
+    with pytest.raises(RuntimeError, match="failed its release gate"):
+        write_cache_manifest(tmp_path, requirements=requirements, league="test")

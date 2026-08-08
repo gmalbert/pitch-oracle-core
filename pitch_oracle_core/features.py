@@ -4,10 +4,22 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 import math
+import re
 from typing import Literal
 
 import numpy as np
 import pandas as pd
+
+
+def parse_match_dates(values: Sequence[object]) -> pd.Series:
+    """Parse ISO dates and football-data's day-first dates without ambiguity."""
+    source = pd.Series(values, copy=False)
+    text = source.astype("string").str.strip()
+    iso = text.str.fullmatch(r"\d{4}-\d{2}-\d{2}", na=False)
+    result = pd.Series(pd.NaT, index=source.index, dtype="datetime64[ns]")
+    result.loc[iso] = pd.to_datetime(text.loc[iso], format="%Y-%m-%d", errors="coerce")
+    result.loc[~iso] = pd.to_datetime(text.loc[~iso], dayfirst=True, errors="coerce")
+    return result
 
 
 def completed_match_rows(
@@ -18,12 +30,40 @@ def completed_match_rows(
 ) -> pd.DataFrame:
     """Return dated, completed matches suitable for point-in-time features."""
     result = frame.copy()
-    result[date_column] = pd.to_datetime(result[date_column], errors="coerce")
+    result[date_column] = parse_match_dates(result[date_column])
     valid = result[date_column].notna() & result[result_column].isin(("H", "D", "A"))
     return result.loc[valid].reset_index(drop=True)
 
 
-FEATURE_POLICY_VERSION = 2
+FEATURE_POLICY_VERSION = 3
+
+# football-data.co.uk mixes descriptive bookmaker fields with terse legacy
+# codes (for example ``B365H``, ``PSCH`` and ``AvgCA``).  Looking only for the
+# word "odds" therefore lets many market and closing-price fields leak into a
+# supposedly football-only model.  Keep this policy centralized so training,
+# auditing and serving cannot disagree about what "no odds" means.
+_MARKET_NAME_TOKENS = (
+    "odds", "impliedprob", "marketmargin", "oddsmovement", "bet365_value",
+    "bet365_expectedtotalgoals", "bet365_homevs", "bet365_awayvs",
+    "bet365_overunder_margin", "bet365_ah_margin",
+)
+_BOOKMAKER_NAME_PREFIXES = (
+    "bet365_", "betwin_", "bluesquare_", "gamebookers_", "interwetten_",
+    "ladbrokes_", "pinnacle_", "sportingbet_", "stanjames_", "stanleybet_",
+    "vcbet_", "williamhill_", "betbrain_", "max_", "avg_",
+)
+_FOOTBALL_DATA_MARKET_CODE = re.compile(
+    r"^(?:"
+    r"B365|PS|BW|IW|WH|VC|LB|SB|SJ|SY|GB|BS|"
+    r"Max|Avg|Bb|BF|BFE|BFD|BMGM|BV|CL|1XB|P"
+    r")(?:C?(?:H|D|A)|C?[<>]2\.5|C?AH[HAh]|CAH[HAh]|.*Odds)$",
+    re.IGNORECASE,
+)
+_EXACT_MARKET_CODES = {
+    "AHh", "AHCh", "PAHH", "PAHA", "PCAHH", "PCAHA",
+    "MaxAHH", "MaxAHA", "AvgAHH", "AvgAHA",
+    "MaxCAHH", "MaxCAHA", "AvgCAHH", "AvgCAHA",
+}
 
 # These fields are outcomes, in-match observations, or aggregates currently
 # calculated using the full historical dataset.  Using them to predict rows in
@@ -73,6 +113,25 @@ def is_prematch_feature(column: str) -> bool:
         # Closing prices are unavailable when forecasts are generated earlier.
         return False
     return True
+
+
+def is_market_feature(column: str) -> bool:
+    """Return whether a field derives from bookmaker prices or market state."""
+    name = str(column)
+    lowered = name.lower()
+    if any(token in lowered for token in _MARKET_NAME_TOKENS):
+        return True
+    if lowered.startswith(tuple(prefix.lower() for prefix in _BOOKMAKER_NAME_PREFIXES)):
+        return True
+    return name in _EXACT_MARKET_CODES or bool(_FOOTBALL_DATA_MARKET_CODE.fullmatch(name))
+
+
+def no_odds_feature_columns(frame: pd.DataFrame) -> list[str]:
+    """Return point-in-time feature columns that are independent of the market."""
+    return [
+        column for column in prematch_feature_columns(frame)
+        if not is_market_feature(column)
+    ]
 
 
 def prematch_feature_columns(frame: pd.DataFrame) -> list[str]:
@@ -129,3 +188,39 @@ def chronological_split_indices(
     if len(train_indices) == 0 or len(test_indices) == 0:
         raise ValueError("Dates do not provide distinct train and test periods")
     return train_indices, test_indices
+
+
+def chronological_partition_indices(
+    dates: Sequence[object], *, calibration_size: float = 0.2, test_size: float = 0.2
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Create train/calibration/test periods without splitting match dates."""
+    if calibration_size <= 0 or test_size <= 0 or calibration_size + test_size >= 1:
+        raise ValueError("calibration_size and test_size must be positive and sum to less than 1")
+    train_calibration, test = chronological_split_indices(dates, test_size=test_size)
+    remaining_dates = pd.to_datetime(pd.Series(dates), errors="coerce").iloc[train_calibration]
+    relative_calibration = calibration_size / (1.0 - test_size)
+    train_relative, calibration_relative = chronological_split_indices(
+        remaining_dates, test_size=relative_calibration
+    )
+    return (
+        train_calibration[train_relative],
+        train_calibration[calibration_relative],
+        test,
+    )
+
+
+def completed_future_rows(
+    frame: pd.DataFrame,
+    *,
+    as_of: object | None = None,
+    tolerance_days: int = 1,
+    date_column: str = "MatchDate",
+    result_column: str = "FullTimeResult",
+) -> pd.DataFrame:
+    """Return completed matches dated implausibly after the audit cutoff."""
+    if tolerance_days < 0:
+        raise ValueError("tolerance_days cannot be negative")
+    dates = pd.to_datetime(frame[date_column], errors="coerce")
+    cutoff = pd.Timestamp(as_of or pd.Timestamp.now(tz="UTC").date()).tz_localize(None)
+    completed = frame[result_column].isin(("H", "D", "A"))
+    return frame.loc[completed & (dates > cutoff + pd.Timedelta(days=tolerance_days))].copy()

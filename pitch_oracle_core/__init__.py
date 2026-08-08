@@ -14,8 +14,13 @@ from .xg import Shot, expected_goals_from_shots
 from .goal_markets import GoalMarketProbabilities, calculate_goal_markets
 from .features import (
     FEATURE_POLICY_VERSION,
+    chronological_partition_indices,
     chronological_split_indices,
+    completed_future_rows,
     completed_match_rows,
+    is_market_feature,
+    no_odds_feature_columns,
+    parse_match_dates,
     prematch_feature_columns,
     prior_group_rolling,
 )
@@ -31,8 +36,9 @@ __all__ = [
     "ProviderRegistry", "Stadium", "TrainingResult", "calculate_shot_xg",
     "current_runtime", "evaluate", "get_league_config", "normalize_odds",
     "require_source", "run_app", "train", "GoalMarketProbabilities",
-    "calculate_goal_markets", "FEATURE_POLICY_VERSION", "chronological_split_indices",
-    "completed_match_rows",
+    "calculate_goal_markets", "FEATURE_POLICY_VERSION", "chronological_partition_indices",
+    "chronological_split_indices", "completed_future_rows", "completed_match_rows",
+    "is_market_feature", "no_odds_feature_columns", "parse_match_dates",
     "prematch_feature_columns", "prior_group_rolling", "calculate_prediction_risk",
     "get_prediction_guidance", "get_risk_category",
     "FeatureContract", "build_prediction_frame", "build_upcoming_feature_matrix",

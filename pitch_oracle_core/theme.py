@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 import streamlit as st
 
 from .config import LeagueConfig
 
-# Temporary launch-theme candidates offered to consumers while a new look is
-# selected. Each palette overrides every field a ThemeConfig can set; the
-# sidebar chooser names must match these keys exactly.
+# Palette archive retained for visual history. Production selection below is
+# fixed to Blue Sky Ledger and Blue Hour; no palette chooser is rendered.
 LAUNCH_THEMES: dict[str, dict[str, str]] = {
     # ── Daytime · light themes ────────────────────────────────────────────
     "☀️ Daytime · Alpine Mist": {
@@ -254,6 +256,43 @@ LAUNCH_THEMES: dict[str, dict[str, str]] = {
     },
 }
 
+DAY_THEME_NAME = "☀️ Daytime · Blue Sky Ledger"
+NIGHT_THEME_NAME = "🌙 Nighttime · Blue Hour"
+DAY_START_HOUR = 7
+NIGHT_START_HOUR = 19
+
+
+def _theme_name_for_hour(local_hour: int) -> str:
+    """Select the fixed production palette for a browser-local hour."""
+    if not 0 <= local_hour <= 23:
+        raise ValueError("local_hour must be between 0 and 23")
+    return DAY_THEME_NAME if DAY_START_HOUR <= local_hour < NIGHT_START_HOUR else NIGHT_THEME_NAME
+
+
+def _browser_local_hour(
+    *,
+    now_utc: datetime | None = None,
+    timezone_name: str | None = None,
+    timezone_offset_minutes: int | None = None,
+) -> int:
+    """Return the current hour in the browser's timezone with safe fallbacks."""
+    now = now_utc or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    if timezone_name is None:
+        timezone_name = st.context.timezone
+    if timezone_offset_minutes is None:
+        timezone_offset_minutes = st.context.timezone_offset
+    if timezone_name:
+        try:
+            return now.astimezone(ZoneInfo(timezone_name)).hour
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
+    if timezone_offset_minutes is not None:
+        browser_timezone = timezone(-timedelta(minutes=timezone_offset_minutes))
+        return now.astimezone(browser_timezone).hour
+    return now.astimezone().hour
+
 
 def apply_theme(config: LeagueConfig) -> None:
     """Apply the shared Pitch Oracle visual system.
@@ -261,35 +300,18 @@ def apply_theme(config: LeagueConfig) -> None:
     Consumers provide the league identity; the core owns the common visual
     language so every league deployment feels like the same product.
 
-    When the consumer offers launch-theme candidates, the name selected in
-    the sidebar overrides the configured palette for this session.
+    Blue Sky Ledger is applied from 07:00 through 18:59 in the browser's
+    timezone. Blue Hour is applied overnight. There is no user-facing chooser.
     """
-    primary = config.theme.primary
-    primary_dark = config.theme.primary_dark
-    sidebar = config.theme.sidebar
-    page = config.theme.page
-    border = config.theme.border
-    muted = config.theme.muted
-
-    if config.theme.launch_theme_choices:
-        choice = st.session_state.get(f"{config.key}_launch_theme_choice")
-        if choice not in LAUNCH_THEMES:
-            # The selectbox has not rendered yet on the first run; match its
-            # default so no unnecessary re-run fires before a real change.
-            choice = config.theme.launch_theme_choices[0]
-        palette = LAUNCH_THEMES.get(choice)
-        if palette is not None:
-            primary = palette["primary"]
-            primary_dark = palette["primary_dark"]
-            sidebar = palette["sidebar"]
-            page = palette["page"]
-            border = palette["border"]
-            muted = palette["muted"]
-        # Record the palette that is currently applied so the sidebar chooser
-        # can detect a change and re-run the app to restyle.
-        st.session_state.setdefault(
-            f"{config.key}_launch_theme_choice_applied", choice
-        )
+    del config  # The production theme policy is shared across all consumers.
+    choice = _theme_name_for_hour(_browser_local_hour())
+    palette = LAUNCH_THEMES[choice]
+    primary = palette["primary"]
+    primary_dark = palette["primary_dark"]
+    sidebar = palette["sidebar"]
+    page = palette["page"]
+    border = palette["border"]
+    muted = palette["muted"]
 
     # Dark themes need light text everywhere; infer from the page background
     # luminance so the palettes can't drift out of sync with the CSS mode.

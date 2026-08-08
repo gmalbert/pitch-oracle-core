@@ -28,6 +28,16 @@ on:
         description: "League-specific upcoming prediction cache command"
         required: true
         type: string
+    secrets:
+      FD_API_KEY:
+        description: "football-data.org X-Auth-Token"
+        required: false
+      BZZOIRO_KEY:
+        required: false
+      SPORTS_API_KEY:
+        required: false
+      THERUNDOWN_API_KEY:
+        required: false
 
 permissions:
   contents: write
@@ -38,6 +48,11 @@ jobs:
     timeout-minutes: 60
     env:
       PITCH_ORACLE_LEAGUE: ${{ inputs.league_key }}
+      PITCH_ORACLE_DISABLE_WEATHER: "1"
+      FD_API_KEY: ${{ secrets.FD_API_KEY }}
+      BZZOIRO_KEY: ${{ secrets.BZZOIRO_KEY }}
+      SPORTS_API_KEY: ${{ secrets.SPORTS_API_KEY }}
+      THERUNDOWN_API_KEY: ${{ secrets.THERUNDOWN_API_KEY }}
     steps:
       - name: Checkout league consumer
         uses: actions/checkout@v7
@@ -58,6 +73,12 @@ jobs:
       - name: Prepare league data
         shell: bash
         run: ${{ inputs.data_command }}
+
+      - name: Audit chronology and no-odds model candidate
+        run: >-
+          python -m pitch_oracle_core.audit_cli
+          data_files/combined_historical_data_with_calculations_new.csv
+          --output-dir precomputed/model-audit
 
       - name: Train league models
         shell: bash

@@ -51,3 +51,16 @@ def test_poisson_metrics_exist(tmp_path):
     assert 0 <= metrics['brier_home'] <= 1
     assert 0 <= metrics['brier_draw'] <= 1
     assert 0 <= metrics['brier_away'] <= 1
+
+
+def test_zero_zero_opening_match_keeps_poisson_prior_positive():
+    matches = pd.DataFrame([
+        {"MatchDate": "2025-01-01", "HomeTeam": "A", "AwayTeam": "B", "FullTimeHomeGoals": 0, "FullTimeAwayGoals": 0},
+        {"MatchDate": "2025-01-02", "HomeTeam": "B", "AwayTeam": "A", "FullTimeHomeGoals": 1, "FullTimeAwayGoals": 0},
+    ])
+
+    home, away, probabilities = walk_forward_expectations(matches)
+
+    assert (home > 0).all()
+    assert (away > 0).all()
+    assert all(sum(row) == pytest.approx(1.0) for row in probabilities)

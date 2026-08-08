@@ -44,6 +44,25 @@ def repository_slug_for(league_key: str) -> str:
         raise ValueError(f"No country repository name configured for {league_key!r}") from exc
 
 
+def copy_local_environment(
+    destination: str | Path, source_env: str | Path | None = None
+) -> bool:
+    """Copy local secrets into a consumer only when Git explicitly ignores them."""
+    destination = Path(destination)
+    source = Path(source_env) if source_env is not None else CORE_ROOT / ".env"
+    if not source.is_file():
+        return False
+    ignore_path = destination / ".gitignore"
+    ignored = {
+        line.strip() for line in ignore_path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    if ".env" not in ignored:
+        raise RuntimeError("Refusing to copy secrets: consumer .gitignore does not ignore .env")
+    shutil.copy2(source, destination / ".env")
+    return True
+
+
 def bootstrap_consumer(league_key: str, parent: str | Path = "..") -> Path:
     """Create a country-named consumer directory below ``parent``."""
     key = league_key.lower()
@@ -75,6 +94,8 @@ def bootstrap_consumer(league_key: str, parent: str | Path = "..") -> Path:
         content = content.replace("eredivisie", config.key)
         content = content.replace("Eredivisie", config.display_name)
         path.write_text(content, encoding="utf-8")
+
+    copy_local_environment(destination)
 
     return destination
 

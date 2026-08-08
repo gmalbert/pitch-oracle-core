@@ -27,7 +27,7 @@ class DataSourceConfig:
 
 @dataclass(frozen=True)
 class ThemeConfig:
-    """Consumer-level visual overrides for the shared core theme."""
+    """Legacy consumer-level visual fallbacks for the shared core theme."""
 
     primary: str = "#1554a6"
     primary_dark: str = "#0d2f5f"
@@ -35,8 +35,9 @@ class ThemeConfig:
     page: str = "#ffffff"
     border: str = "#d9e0e8"
     muted: str = "#64748b"
-    # A consumer may temporarily offer launch-theme candidates.  An empty
-    # tuple keeps the control out of production consumers.
+    # Deprecated compatibility field. Production ignores these values and no
+    # chooser is rendered, but retaining the field keeps older consumers from
+    # failing while they remove their temporary launch configuration.
     launch_theme_choices: tuple[str, ...] = ()
 
 
