@@ -55,6 +55,7 @@ class PhaseConfig:
     regular_matches_per_opponent: int = 2
     split_after_round: int | None = None
     split_pools: tuple[str, ...] = ()
+    split_pool_sizes: tuple[int, ...] = ()
     points_halving: bool = False
     points_halving_rounding: Literal["ceil", "floor", "none"] = "ceil"
     playoffs: tuple[PlayoffConfig, ...] = ()

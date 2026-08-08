@@ -27,6 +27,44 @@ def apply_phase_transition(points: Mapping[str, float], config: LeagueConfig) ->
     return result
 
 
+def build_split_pools(
+    standings: Mapping[str, float], config: LeagueConfig
+) -> dict[str, tuple[str, ...]]:
+    """Partition regular-season standings into configured post-split pools.
+
+    Teams are ranked by their supplied standings values (highest first), with
+    the team name as a deterministic tie-breaker. Pool labels and sizes live
+    in ``PhaseConfig`` so Scotland, Belgium, and future leagues share the same
+    transition logic.
+    """
+    labels = config.phase.split_pools
+    sizes = config.phase.split_pool_sizes
+    if not labels:
+        return {}
+    if len(labels) != len(sizes) or sum(sizes) != len(standings):
+        raise ValueError("split_pools and split_pool_sizes must cover every team exactly once")
+    if any(size < 1 for size in sizes):
+        raise ValueError("split pool sizes must be positive")
+    ranked = sorted(standings, key=lambda team: (-standings[team], str(team)))
+    pools: dict[str, tuple[str, ...]] = {}
+    offset = 0
+    for label, size in zip(labels, sizes):
+        pools[label] = tuple(ranked[offset:offset + size])
+        offset += size
+    return pools
+
+
+def phase_start_standings(
+    regular_standings: Mapping[str, float], config: LeagueConfig
+) -> dict[str, float]:
+    """Apply configured points transition and sanctions at a phase boundary."""
+    transitioned = apply_phase_transition(regular_standings, config)
+    for team, adjustment in config.points_adjustments.items():
+        if team in transitioned:
+            transitioned[team] += adjustment
+    return transitioned
+
+
 def eligible_opponents(team: str, phase: str, pools: Mapping[str, Sequence[str]] | None = None) -> set[str] | None:
     """Return allowed opponents, or ``None`` when the phase is unrestricted."""
     if phase == "regular" or pools is None:
