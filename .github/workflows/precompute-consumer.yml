@@ -38,8 +38,8 @@ on:
         required: false
       THERUNDOWN_API_KEY:
         required: false
-      ODDS_API_KEY:
-        description: "Server-side odds provider credential"
+      ODDS_API_IO_KEY:
+        description: "Odds-API.io server-side credential"
         required: false
 
 permissions:
@@ -56,7 +56,7 @@ jobs:
       BZZOIRO_KEY: ${{ secrets.BZZOIRO_KEY }}
       SPORTS_API_KEY: ${{ secrets.SPORTS_API_KEY }}
       THERUNDOWN_API_KEY: ${{ secrets.THERUNDOWN_API_KEY }}
-      ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+      ODDS_API_IO_KEY: ${{ secrets.ODDS_API_IO_KEY }}
     steps:
       - name: Checkout league consumer
         uses: actions/checkout@v7
