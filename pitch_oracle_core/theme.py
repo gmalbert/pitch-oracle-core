@@ -256,23 +256,16 @@ LAUNCH_THEMES: dict[str, dict[str, str]] = {
     },
 }
 
-DAY_THEME_NAME = "☀️ Daytime · Blue Sky Ledger"
-NIGHT_THEME_NAME = "🌙 Nighttime · Blue Hour"
+DAY_THEME_NAME = "☀️ Daytime · Delft Blue"
+NIGHT_THEME_NAME = "🌙 Nighttime · Winter Night"
 DAY_START_HOUR = 7
 NIGHT_START_HOUR = 19
-
-THEME_CHOICES = tuple(LAUNCH_THEMES)
-
 
 def _theme_name_for_hour(local_hour: int) -> str:
     """Select the fixed production palette for a browser-local hour."""
     if not 0 <= local_hour <= 23:
         raise ValueError("local_hour must be between 0 and 23")
     return DAY_THEME_NAME if DAY_START_HOUR <= local_hour < NIGHT_START_HOUR else NIGHT_THEME_NAME
-
-
-def _theme_choice_key(config: LeagueConfig) -> str:
-    return f"{config.key}_theme_choice"
 
 
 def _browser_local_hour(
@@ -306,16 +299,10 @@ def apply_theme(config: LeagueConfig) -> None:
     Consumers provide the league identity; the core owns the common visual
     language so every league deployment feels like the same product.
 
-    The browser-local clock selects the initial palette: Blue Sky Ledger from
-    07:00 through 18:59 and Blue Hour overnight. The sidebar dropdown can then
-    override that choice for the current session.
+    The browser-local clock selects Delft Blue from 07:00 through 18:59 and
+    Winter Night overnight.
     """
-    default_choice = _theme_name_for_hour(_browser_local_hour())
-    choice_key = _theme_choice_key(config)
-    choice = st.session_state.setdefault(choice_key, default_choice)
-    if choice not in LAUNCH_THEMES:
-        choice = default_choice
-        st.session_state[choice_key] = choice
+    choice = _theme_name_for_hour(_browser_local_hour())
     palette = LAUNCH_THEMES[choice]
     primary = palette["primary"]
     primary_dark = palette["primary_dark"]

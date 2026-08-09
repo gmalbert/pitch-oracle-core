@@ -94,12 +94,11 @@ def test_browser_timezone_and_offset_are_supported():
     ) == 7
 
 
-def test_daytime_app_uses_blue_sky_ledger_without_chooser(tmp_path, monkeypatch):
+def test_daytime_app_uses_delft_blue_without_chooser(tmp_path, monkeypatch):
     app = _run_app(tmp_path, monkeypatch, local_hour=12)
 
     assert not app.exception
-    assert app.sidebar.selectbox[0].label == "Color theme"
-    assert app.sidebar.selectbox[0].value == DAY_THEME_NAME
+    assert not app.sidebar.selectbox
     css = _css(app)
     palette = LAUNCH_THEMES[DAY_THEME_NAME]
     assert f"--pitch-primary: {palette['primary']}" in css
@@ -107,12 +106,11 @@ def test_daytime_app_uses_blue_sky_ledger_without_chooser(tmp_path, monkeypatch)
     assert "--pitch-text: #31333f" in css
 
 
-def test_nighttime_app_uses_blue_hour_without_chooser(tmp_path, monkeypatch):
+def test_nighttime_app_uses_winter_night_without_chooser(tmp_path, monkeypatch):
     app = _run_app(tmp_path, monkeypatch, local_hour=22)
 
     assert not app.exception
-    assert app.sidebar.selectbox[0].label == "Color theme"
-    assert app.sidebar.selectbox[0].value == NIGHT_THEME_NAME
+    assert not app.sidebar.selectbox
     css = _css(app)
     palette = LAUNCH_THEMES[NIGHT_THEME_NAME]
     assert f"--pitch-primary: {palette['primary']}" in css
@@ -121,3 +119,4 @@ def test_nighttime_app_uses_blue_hour_without_chooser(tmp_path, monkeypatch):
     assert "--pitch-card: #14181f" in css
     assert '[data-testid="stDownloadButton"] > button' in css
     assert '[data-testid="stButtonGroup"] [data-variant="segmented_control"]' in css
+    assert '[data-testid="stMain"] [data-testid="stImage"]' not in css

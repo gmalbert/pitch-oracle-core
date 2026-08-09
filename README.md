@@ -1,7 +1,7 @@
 # pitch-oracle-core
 
 Shared, versioned league-agnostic package for Pitch Oracle consumers. The current
-consumer contract is **1.3.22** and requires Python 3.12 or newer.
+consumer contract is **1.3.23** and requires Python 3.12 or newer.
 
 The package provides configuration contracts, phase-aware competition logic, optional
 data-source handling, a deterministic shot-based xG proxy, and a provider-neutral odds
@@ -14,7 +14,7 @@ configuration, data files, league-specific adapters, and Streamlit entrypoint.
 Pin an immutable release tag and install the consumer dependencies:
 
 ```text
-pitch-oracle-core[consumer] @ git+https://github.com/gmalbert/pitch-oracle-core.git@v1.3.22
+pitch-oracle-core[consumer] @ git+https://github.com/gmalbert/pitch-oracle-core.git@v1.3.23
 ```
 
 Optional neural models additionally require the `neural` extra.
