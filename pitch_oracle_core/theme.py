@@ -429,13 +429,6 @@ def apply_theme(config: LeagueConfig) -> None:
             object-position: center;
         }}
 
-        /* The full wordmark contains transparent lettering.  Keep its main
-           header surface light so the artwork stays faithful in dark mode. */
-        [data-testid="stMain"] [data-testid="stImage"] {{
-            background: #ffffff;
-            border-radius: 12px;
-        }}
-
         [data-testid="stMetric"] {{
             background: var(--pitch-card);
             border: 1px solid var(--pitch-card-border);

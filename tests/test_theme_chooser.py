@@ -121,4 +121,3 @@ def test_nighttime_app_uses_blue_hour_without_chooser(tmp_path, monkeypatch):
     assert "--pitch-card: #14181f" in css
     assert '[data-testid="stDownloadButton"] > button' in css
     assert '[data-testid="stButtonGroup"] [data-variant="segmented_control"]' in css
-    assert '[data-testid="stMain"] [data-testid="stImage"]' in css
