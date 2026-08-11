@@ -60,8 +60,10 @@ def _validate_prediction_artifacts(root: Path, requirement_names: set[str]) -> N
 
     if "model_metadata" in requirement_names:
         metadata = json.loads((root / "models" / "model_metadata.json").read_text(encoding="utf-8"))
-        if metadata.get("feature_set") != "no_odds":
-            raise RuntimeError("Production model metadata must declare feature_set 'no_odds'")
+        if metadata.get("feature_set") not in ("no_odds", "poisson"):
+            raise RuntimeError(
+                "Production model metadata must declare feature_set 'no_odds' or 'poisson'"
+            )
         if metadata.get("feature_policy_version") != FEATURE_POLICY_VERSION:
             raise RuntimeError("Production model metadata uses a stale feature policy")
         if tuple(metadata.get("feature_names", ())) != contract.feature_names:
@@ -75,6 +77,16 @@ def _validate_prediction_artifacts(root: Path, requirement_names: set[str]) -> N
         )
         if audit.get("status") != "complete" or not audit.get("release_gate", {}).get("passed"):
             raise RuntimeError("Model audit is incomplete or failed its release gate")
+        candidate = audit.get("release_gate", {}).get("production_candidate")
+        if "model_metadata" in requirement_names:
+            metadata = json.loads(
+                (root / "models" / "model_metadata.json").read_text(encoding="utf-8")
+            )
+            if candidate is not None and metadata.get("feature_set") != candidate:
+                raise RuntimeError(
+                    f"Production model metadata declares {metadata.get('feature_set')!r} "
+                    f"but the audit selected {candidate!r}"
+                )
 
     import pandas as pd
 

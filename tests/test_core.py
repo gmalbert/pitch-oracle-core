@@ -19,6 +19,16 @@ def test_all_reference_leagues_have_identifiers():
         assert config.team_count > 0
 
 
+def test_turkey_cross_provider_team_aliases_match_historical_names():
+    config = get_league_config("turkey")
+
+    assert config.espn_slug == "tur.1"
+    assert config.team_aliases["Caykur Rizespor"] == "Rizespor"
+    assert config.team_aliases["Gaziantep FK"] == "Gaziantep"
+    assert config.team_aliases["Goztepe"] == "Goztep"
+    assert config.team_aliases["Istanbul Basaksehir"] == "Buyuksehyr"
+
+
 def test_scotland_split_and_opponents():
     config = get_league_config("scotland")
     assert assign_phase(33, config) == "regular"

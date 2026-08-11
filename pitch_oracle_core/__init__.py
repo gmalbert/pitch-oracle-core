@@ -28,7 +28,12 @@ from .features import (
     prior_group_rolling,
 )
 from .risk import calculate_prediction_risk, get_prediction_guidance, get_risk_category
-from .predictions import FeatureContract, build_prediction_frame, build_upcoming_feature_matrix
+from .predictions import (
+    FeatureContract,
+    build_prediction_frame,
+    build_upcoming_feature_matrix,
+    production_probabilities,
+)
 from .weather import add_weather_features, add_weather_impact_category, fetch_match_weather
 
 __all__ = [
@@ -46,5 +51,6 @@ __all__ = [
     "prematch_feature_columns", "prior_group_rolling", "calculate_prediction_risk",
     "get_prediction_guidance", "get_risk_category",
     "FeatureContract", "build_prediction_frame", "build_upcoming_feature_matrix",
+    "production_probabilities",
     "add_weather_features", "add_weather_impact_category", "fetch_match_weather",
 ]

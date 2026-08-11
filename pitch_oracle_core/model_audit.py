@@ -238,7 +238,55 @@ def evaluate_feature_ablation(
             test_rows=len(all_y),
             metrics=probability_metrics(all_y, np.asarray(all_probabilities)),
         ))
+    results.append(_poisson_ablation_result(working, y, folds))
     return results
+
+
+def _poisson_ablation_result(
+    working: pd.DataFrame,
+    y: np.ndarray,
+    folds: list[tuple[np.ndarray, np.ndarray]],
+) -> AblationResult:
+    """Evaluate the point-in-time walk-forward Poisson goals model.
+
+    The Poisson forecast for a row depends only on matches strictly before it,
+    so it is a legitimate production candidate alongside the fitted no-odds
+    classifier. The import is deferred to avoid a circular dependency:
+    ``models.poisson_evaluation`` imports ``probability_metrics`` from here.
+    """
+    from models.poisson_evaluation import walk_forward_expectations
+
+    required = {"HomeTeam", "AwayTeam", "FullTimeHomeGoals", "FullTimeAwayGoals"}
+    if not required.issubset(working.columns):
+        return AblationResult(
+            candidate="poisson",
+            feature_count=0,
+            folds=len(folds),
+            test_rows=0,
+            metrics={
+                "accuracy": float("nan"),
+                "log_loss": float("nan"),
+                "brier_score": float("nan"),
+                "calibration_error": float("nan"),
+                "draw_recall": float("nan"),
+                "mean_confidence": float("nan"),
+                "decisive_lean_rate": float("nan"),
+            },
+        )
+
+    _, _, outcome_probabilities = walk_forward_expectations(working)
+    probabilities = np.asarray(outcome_probabilities)
+    all_y, all_probabilities = [], []
+    for _, test in folds:
+        all_y.extend(y[test].tolist())
+        all_probabilities.extend(probabilities[test].tolist())
+    return AblationResult(
+        candidate="poisson",
+        feature_count=0,
+        folds=len(folds),
+        test_rows=len(all_y),
+        metrics=probability_metrics(all_y, np.asarray(all_probabilities)),
+    )
 
 
 def data_quality_summary(frame: pd.DataFrame, *, as_of: object | None = None) -> dict[str, Any]:

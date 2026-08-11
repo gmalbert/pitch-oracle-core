@@ -1,7 +1,7 @@
 """Build the strict upcoming-prediction artifact from the shared feature contract."""
 
 from pathlib import Path
-import pickle
+import json
 import sys
 
 import pandas as pd
@@ -15,9 +15,22 @@ from pitch_oracle_core import (
     FeatureContract,
     add_weather_features,
     build_prediction_frame,
-    build_upcoming_feature_matrix,
+    production_probabilities,
 )
 from config import LEAGUE_CONFIG  # noqa: E402
+
+
+def production_candidate() -> str:
+    """Return the audit-selected production model from the ablation report."""
+    report = json.loads(
+        (ROOT / "precomputed" / "model-audit" / "model_ablation.json").read_text(encoding="utf-8")
+    )
+    candidate = report.get("release_gate", {}).get("production_candidate")
+    if candidate not in ("no_odds", "poisson"):
+        raise RuntimeError(
+            f"Model audit did not select a production candidate; got {candidate!r}"
+        )
+    return candidate
 
 
 def generate() -> Path:
@@ -39,15 +52,16 @@ def generate() -> Path:
             timezone=LEAGUE_CONFIG.sources.weather_timezone,
         )
     contract = FeatureContract.load(ROOT / "precomputed" / "preprocessed_data.pkl")
-    with (ROOT / "models" / "ensemble_model.pkl").open("rb") as stream:
-        model = pickle.load(stream)
-    matrix = build_upcoming_feature_matrix(historical, upcoming, contract)
-    # Preserve the expected-goal inputs needed by the shared goal-market UI.
-    for feature in ("HomeGoalsAve", "AwayGoalsAve", "HomexG_Avg_L5", "AwayxG_Avg_L5"):
-        if feature in contract.feature_names:
-            upcoming[feature] = matrix[:, contract.feature_names.index(feature)]
+    candidate = production_candidate()
+    probabilities = production_probabilities(
+        historical,
+        upcoming,
+        contract,
+        production_candidate=candidate,
+        models_dir=ROOT / "models",
+    )
     output = ROOT / "data_files" / "upcoming_predictions.csv"
-    build_prediction_frame(upcoming, model.predict_proba(matrix)).to_csv(output, index=False)
+    build_prediction_frame(upcoming, probabilities).to_csv(output, index=False)
     return output
 
 

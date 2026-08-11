@@ -14,9 +14,9 @@ concurrency:
 
 jobs:
   build-and-validate:
-    uses: gmalbert/pitch-oracle-core/.github/workflows/precompute-consumer.yml@v1.3.17
+    uses: gmalbert/pitch-oracle-core/.github/workflows/precompute-consumer.yml@v1.3.27
     with:
-      core_ref: v1.3.17
+      core_ref: v1.3.27
       league_key: eredivisie
       data_command: >-
         python -m combine_raw_data &&

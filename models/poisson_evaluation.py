@@ -76,6 +76,85 @@ def walk_forward_expectations(
     return np.asarray(home_expected), np.asarray(away_expected), outcome_probabilities
 
 
+def predict_upcoming_outcomes(
+    historical: pd.DataFrame,
+    upcoming: pd.DataFrame,
+    prior_rate: float = 1.4,
+    *,
+    league_prior_matches: float = 20.0,
+    team_prior_matches: float = 5.0,
+) -> tuple[list[tuple[float, float, float]], list[tuple[float, float]]]:
+    """Return walk-forward Poisson 1X2 probabilities for upcoming fixtures.
+
+    Team attack and defense rates are accumulated from completed history only,
+    matching the discipline of ``walk_forward_expectations``: an upcoming
+    fixture's forecast never sees a completed match dated after it.
+    """
+    required = {
+        'HomeTeam', 'AwayTeam', 'FullTimeHomeGoals', 'FullTimeAwayGoals',
+    }
+    missing = required.difference(historical.columns)
+    if missing:
+        raise ValueError(f"Missing required columns: {', '.join(sorted(missing))}")
+    if 'MatchDate' in historical.columns:
+        historical = historical.sort_values('MatchDate', kind='stable')
+
+    home_for: dict[str, list[float]] = {}
+    home_against: dict[str, list[float]] = {}
+    away_for: dict[str, list[float]] = {}
+    away_against: dict[str, list[float]] = {}
+    total_goals = 0.0
+    matches_seen = 0
+    predictor = PoissonPredictor()
+
+    if prior_rate <= 0 or league_prior_matches <= 0 or team_prior_matches <= 0:
+        raise ValueError("Poisson prior rates and weights must be positive")
+
+    def average(store: dict[str, list[float]], team: str, fallback: float) -> float:
+        totals = store.get(team, [0.0, 0.0])
+        return (totals[0] + fallback * team_prior_matches) / (totals[1] + team_prior_matches)
+
+    def update(store: dict[str, list[float]], team: str, value: float) -> None:
+        totals = store.setdefault(team, [0.0, 0.0])
+        totals[0] += value
+        totals[1] += 1
+
+    for _, row in historical.iterrows():
+        home, away = str(row['HomeTeam']), str(row['AwayTeam'])
+        league_rate = (
+            total_goals + 2 * prior_rate * league_prior_matches
+        ) / (2 * (matches_seen + league_prior_matches))
+        home_goals = float(row['FullTimeHomeGoals'])
+        away_goals = float(row['FullTimeAwayGoals'])
+        update(home_for, home, home_goals)
+        update(home_against, home, away_goals)
+        update(away_for, away, away_goals)
+        update(away_against, away, home_goals)
+        total_goals += home_goals + away_goals
+        matches_seen += 1
+
+    league_rate = (
+        total_goals + 2 * prior_rate * league_prior_matches
+    ) / (2 * (matches_seen + league_prior_matches))
+    predictor.league_avg_goals = league_rate
+
+    outcome_probabilities: list[tuple[float, float, float]] = []
+    expected_goals: list[tuple[float, float]] = []
+    for _, row in upcoming.iterrows():
+        home, away = str(row['HomeTeam']), str(row['AwayTeam'])
+        home_rate, away_rate = predictor.estimate_goals(
+            average(home_for, home, league_rate),
+            average(home_against, home, league_rate),
+            average(away_for, away, league_rate),
+            average(away_against, away, league_rate),
+        )
+        scorelines = predictor.poisson_scoreline_probabilities(home_rate, away_rate, max_goals=10)
+        outcome_probabilities.append(predictor.predict_match_outcome(scorelines))
+        expected_goals.append((float(home_rate), float(away_rate)))
+
+    return outcome_probabilities, expected_goals
+
+
 def evaluate_poisson_dataframe(df: pd.DataFrame) -> dict:
     """Evaluate a PoissonPredictor on a historical dataframe.
 

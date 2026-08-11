@@ -88,3 +88,13 @@ def test_bootstrap_can_populate_empty_repo_without_touching_assets(tmp_path: Pat
 def test_bootstrap_rejects_league_without_baseline_fixture_provider(tmp_path: Path):
     with pytest.raises(ValueError, match="not consumer-ready"):
         bootstrap_consumer("portugal", tmp_path)
+
+
+def test_turkey_is_consumer_ready_with_verified_espn_slug(tmp_path: Path):
+    target = bootstrap_consumer("turkey", tmp_path)
+
+    assert target.name == "turkey-soccer"
+    assert 'get_league_config("turkey")' in (target / "config.py").read_text()
+    assert "league_key: turkey" in (
+        target / ".github" / "workflows" / "artifact-pipeline.yml"
+    ).read_text()

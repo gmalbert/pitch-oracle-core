@@ -76,6 +76,12 @@ _EREDIVISIE_STADIUMS = {
     "Willem II": (51.5425, 5.0663),
     "Zwolle": (52.5048, 6.0881),
 }
+_TURKEY_TEAM_ALIASES = {
+    "Caykur Rizespor": "Rizespor",
+    "Gaziantep FK": "Gaziantep",
+    "Goztepe": "Goztep",
+    "Istanbul Basaksehir": "Buyuksehyr",
+}
 
 BUILTIN_LEAGUES = {
     "epl": LeagueConfig("epl", "Premier League", "E0", "eng.1", "ENG_1", 20, (8, 5),
@@ -107,9 +113,9 @@ BUILTIN_LEAGUES = {
                           points_halving=True, points_halving_rounding="ceil"), sources=_OPTIONAL,
     ),
     "turkey": LeagueConfig(
-        "turkey", "Süper Lig", "T1", None, "TUR_1", 20, (8, 5),
+        "turkey", "Süper Lig", "T1", "tur.1", "TUR_1", 20, (8, 5),
         country_name="Turkey", country_flag="🇹🇷",
-        points_adjustments={}, sources=_OPTIONAL,
+        points_adjustments={}, team_aliases=_TURKEY_TEAM_ALIASES, sources=_OPTIONAL,
     ),
 }
 
