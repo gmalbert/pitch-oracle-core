@@ -48,7 +48,7 @@ and ClubElo where confirmed.
   implementation covers both without checking
 
 ## Turkey — Süper Lig
-- `Div=T1`, ESPN slug unconfirmed (verify before Phase 4)
+- `Div=T1`, ESPN `tur.1` (confirmed)
 - Season starts weekend of Aug 14–17, 2026 — your latest start date, which also
   gives you the most runway
 - 20 teams (2025–26 onward), straight round-robin, no split/playoff structure

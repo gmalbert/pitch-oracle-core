@@ -11,6 +11,11 @@ on:
         description: "League key registered by pitch-oracle-core"
         required: true
         type: string
+      odds_api_io_bookmakers:
+        description: "Comma-separated Odds-API.io bookmakers"
+        required: false
+        default: "Bet365,Unibet"
+        type: string
       install_command:
         description: "Consumer dependency installation command"
         required: false
@@ -38,6 +43,9 @@ on:
         required: false
       THERUNDOWN_API_KEY:
         required: false
+      ODDS_API_IO_KEY:
+        description: "Odds-API.io server-side credential"
+        required: false
 
 permissions:
   contents: write
@@ -53,6 +61,8 @@ jobs:
       BZZOIRO_KEY: ${{ secrets.BZZOIRO_KEY }}
       SPORTS_API_KEY: ${{ secrets.SPORTS_API_KEY }}
       THERUNDOWN_API_KEY: ${{ secrets.THERUNDOWN_API_KEY }}
+      ODDS_API_IO_KEY: ${{ secrets.ODDS_API_IO_KEY }}
+      ODDS_API_IO_BOOKMAKERS: ${{ inputs.odds_api_io_bookmakers }}
     steps:
       - name: Checkout league consumer
         uses: actions/checkout@v7

@@ -3,7 +3,8 @@ from dataclasses import replace
 
 from pitch_oracle_core import (
     OptionalFeatureSet, Shot, apply_phase_transition, assign_phase,
-    eligible_opponents, expected_goals_from_shots, get_league_config,
+    build_split_pools, eligible_opponents, expected_goals_from_shots,
+    get_league_config, phase_start_standings,
     normalize_odds,
 )
 from pitch_oracle_core.providers import ProviderRegistry
@@ -18,6 +19,16 @@ def test_all_reference_leagues_have_identifiers():
         assert config.team_count > 0
 
 
+def test_turkey_cross_provider_team_aliases_match_historical_names():
+    config = get_league_config("turkey")
+
+    assert config.espn_slug == "tur.1"
+    assert config.team_aliases["Caykur Rizespor"] == "Rizespor"
+    assert config.team_aliases["Gaziantep FK"] == "Gaziantep"
+    assert config.team_aliases["Goztepe"] == "Goztep"
+    assert config.team_aliases["Istanbul Basaksehir"] == "Buyuksehyr"
+
+
 def test_scotland_split_and_opponents():
     config = get_league_config("scotland")
     assert assign_phase(33, config) == "regular"
@@ -25,9 +36,23 @@ def test_scotland_split_and_opponents():
     assert eligible_opponents("A", "split", {"top_6": ["A", "B"]}) == {"B"}
 
 
+def test_scotland_split_pools_are_built_from_regular_standings():
+    config = get_league_config("scotland")
+    standings = {team: 40 - index for index, team in enumerate("ABCDEFGHIJKL")}
+    pools = build_split_pools(standings, config)
+    assert pools["top_6"] == tuple("ABCDEF")
+    assert pools["bottom_6"] == tuple("GHIJKL")
+
+
 def test_belgium_halves_and_rounds_up_points():
     config = get_league_config("belgium")
     assert apply_phase_transition({"A": 51, "B": 50}, config) == {"A": 26, "B": 25}
+
+
+def test_phase_start_standings_applies_halving_and_adjustments():
+    config = get_league_config("belgium")
+    config = replace(config, points_adjustments={"A": -1})
+    assert phase_start_standings({"A": 51, "B": 50}, config) == {"A": 25, "B": 25}
 
 
 def test_shot_xg_is_deterministic_and_empty_is_safe():

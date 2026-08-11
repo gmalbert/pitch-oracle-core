@@ -77,3 +77,53 @@ def test_ablation_includes_a_fold_specific_class_prior_baseline():
 
     assert results[0].candidate == "class_prior_baseline"
     assert results[0].feature_count == 0
+
+
+def test_ablation_includes_poisson_candidate_when_goals_are_present():
+    from pitch_oracle_core.model_audit import evaluate_feature_ablation
+
+    rows = []
+    teams = ["A", "B"]
+    labels = ["H", "D", "A"] * 20
+    for index, label in enumerate(labels):
+        home = teams[index % 2]
+        away = teams[(index + 1) % 2]
+        goals = (1, 0) if label == "H" else (0, 1) if label == "A" else (1, 1)
+        rows.append({
+            "MatchDate": pd.Timestamp("2024-01-01") + pd.Timedelta(days=index),
+            "FullTimeResult": label,
+            "HomeTeam": home,
+            "AwayTeam": away,
+            "FullTimeHomeGoals": goals[0],
+            "FullTimeAwayGoals": goals[1],
+            "HomeMomentum_L3": float(index % 4),
+        })
+    results = evaluate_feature_ablation(
+        pd.DataFrame(rows), lambda: DummyClassifier(strategy="prior"), n_splits=2
+    )
+
+    by_name = {result.candidate: result for result in results}
+    assert "poisson" in by_name
+    assert by_name["poisson"].test_rows > 0
+    assert by_name["poisson"].metrics["log_loss"] > 0
+    assert by_name["poisson"].metrics["brier_score"] >= 0
+
+
+def test_ablation_poisson_candidate_skips_without_goal_columns():
+    from pitch_oracle_core.model_audit import evaluate_feature_ablation
+
+    rows = []
+    labels = ["H", "D", "A"] * 20
+    for index, label in enumerate(labels):
+        rows.append({
+            "MatchDate": pd.Timestamp("2024-01-01") + pd.Timedelta(days=index),
+            "FullTimeResult": label,
+            "HomeMomentum_L3": float(index % 4),
+        })
+    results = evaluate_feature_ablation(
+        pd.DataFrame(rows), lambda: DummyClassifier(strategy="prior"), n_splits=2
+    )
+
+    by_name = {result.candidate: result for result in results}
+    assert "poisson" in by_name
+    assert by_name["poisson"].test_rows == 0

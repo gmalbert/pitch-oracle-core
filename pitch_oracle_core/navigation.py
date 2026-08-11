@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from os import path
+from os import environ, path
 
 import streamlit as st
 
@@ -21,11 +21,15 @@ from .ui_pages import (
 
 def render_sidebar_branding(config: LeagueConfig, *, show_logo: bool = True) -> None:
     """Render shared, non-navigation sidebar content."""
-    logo = path.join("data_files", "logo.png")
+    data_dir = environ.get("PITCH_ORACLE_DATA_DIR", "data_files")
+    logo = path.join(data_dir, "logo_no_words.png")
     if show_logo and path.exists(logo):
         st.sidebar.image(logo, width=150)
     elif show_logo:
         st.sidebar.markdown("## ⚽ Pitch Oracle")
+
+    st.sidebar.divider()
+
 
 def build_navigation(config: LeagueConfig):
     """Build the sidebar navigation with explicit icons and ASCII-safe pages."""

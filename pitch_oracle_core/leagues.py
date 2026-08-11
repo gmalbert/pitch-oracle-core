@@ -76,6 +76,12 @@ _EREDIVISIE_STADIUMS = {
     "Willem II": (51.5425, 5.0663),
     "Zwolle": (52.5048, 6.0881),
 }
+_TURKEY_TEAM_ALIASES = {
+    "Caykur Rizespor": "Rizespor",
+    "Gaziantep FK": "Gaziantep",
+    "Goztepe": "Goztep",
+    "Istanbul Basaksehir": "Buyuksehyr",
+}
 
 BUILTIN_LEAGUES = {
     "epl": LeagueConfig("epl", "Premier League", "E0", "eng.1", "ENG_1", 20, (8, 5),
@@ -86,7 +92,7 @@ BUILTIN_LEAGUES = {
         "scotland", "Scottish Premiership", "SC0", "sco.1", "SCO_1", 12, (7, 5),
         country_name="Scotland", country_flag="🇬🇧",
         phase=PhaseConfig(regular_matches_per_opponent=3, split_after_round=33,
-                          split_pools=("top_6", "bottom_6"), playoffs=(
+                          split_pools=("top_6", "bottom_6"), split_pool_sizes=(6, 6), playoffs=(
                               PlayoffConfig("promotion_relegation", cross_division=True),)),
         sources=_OPTIONAL,
     ),
@@ -103,12 +109,13 @@ BUILTIN_LEAGUES = {
         "belgium", "Belgian Pro League", "B1", "bel.1", "BEL_1", 18, (8, 5),
         country_name="Belgium", country_flag="🇧🇪",
         phase=PhaseConfig(split_after_round=34, split_pools=("champions", "europe", "relegation"),
+                          split_pool_sizes=(6, 6, 6),
                           points_halving=True, points_halving_rounding="ceil"), sources=_OPTIONAL,
     ),
     "turkey": LeagueConfig(
-        "turkey", "Süper Lig", "T1", None, "TUR_1", 20, (8, 5),
+        "turkey", "Süper Lig", "T1", "tur.1", "TUR_1", 20, (8, 5),
         country_name="Turkey", country_flag="🇹🇷",
-        points_adjustments={}, sources=_OPTIONAL,
+        points_adjustments={}, team_aliases=_TURKEY_TEAM_ALIASES, sources=_OPTIONAL,
     ),
 }
 

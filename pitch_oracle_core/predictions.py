@@ -175,6 +175,52 @@ def build_prediction_frame(
     return result
 
 
+def production_probabilities(
+    historical: pd.DataFrame,
+    upcoming: pd.DataFrame,
+    contract: FeatureContract,
+    *,
+    production_candidate: str,
+    models_dir: str | Path = "models",
+) -> np.ndarray:
+    """Return 1X2 probabilities from the audit-selected production candidate.
+
+    ``no_odds`` loads the fitted ``ensemble_model.pkl`` and builds the
+    point-in-time feature matrix; ``poisson`` uses the walk-forward expected
+    goals model over completed history only.  Anything else is refused so the
+    audit gate and the shipped cache can never disagree about the model.
+    """
+    if production_candidate == "no_odds":
+        model_path = Path(models_dir) / "ensemble_model.pkl"
+        with model_path.open("rb") as stream:
+            model = pickle.load(stream)
+        matrix = build_upcoming_feature_matrix(historical, upcoming, contract)
+        probabilities = model.predict_proba(matrix)
+        if probabilities.shape != (len(upcoming), 3):
+            raise ValueError(
+                f"No-odds model returned shape {probabilities.shape}; "
+                f"expected {(len(upcoming), 3)}"
+            )
+        return probabilities
+    if production_candidate == "poisson":
+        from models.poisson_evaluation import predict_upcoming_outcomes
+
+        outcome_probabilities, expected_goals = predict_upcoming_outcomes(historical, upcoming)
+        probabilities = np.asarray(outcome_probabilities)
+        if probabilities.shape != (len(upcoming), 3):
+            raise ValueError(
+                f"Poisson model returned shape {probabilities.shape}; "
+                f"expected {(len(upcoming), 3)}"
+            )
+        upcoming["ExpectedHomeGoals"] = [pair[0] for pair in expected_goals]
+        upcoming["ExpectedAwayGoals"] = [pair[1] for pair in expected_goals]
+        return probabilities
+    raise ValueError(
+        f"Unknown production candidate {production_candidate!r}; "
+        "expected 'no_odds' or 'poisson'"
+    )
+
+
 def add_goal_market_predictions(result: pd.DataFrame) -> None:
     """Add common goal-market probabilities when expected goals are available.
 

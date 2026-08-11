@@ -36,16 +36,26 @@ def generate(source: Path, output_dir: Path, *, as_of: str | None = None) -> dic
         results = evaluate_feature_ablation(frame, _estimator)
         by_name = {result.candidate: result for result in results}
         baseline = by_name["class_prior_baseline"].metrics
-        no_odds = by_name["no_odds"].metrics
-        passed = (
-            no_odds["log_loss"] < baseline["log_loss"]
-            and no_odds["brier_score"] < baseline["brier_score"]
+        candidates = ["no_odds", "poisson"]
+        production = next(
+            (
+                name
+                for name in candidates
+                if by_name[name].metrics["log_loss"] < baseline["log_loss"]
+                and by_name[name].metrics["brier_score"] < baseline["brier_score"]
+            ),
+            None,
         )
+        passed = production is not None
         report.update({
             "status": "complete",
             "release_gate": {
                 "passed": passed,
-                "criteria": "no_odds beats rolling class-prior baseline on log loss and Brier score",
+                "production_candidate": production,
+                "criteria": (
+                    "best of no_odds and poisson beats rolling class-prior baseline "
+                    "on log loss and Brier score"
+                ),
             },
             "ablation": [asdict(result) for result in results],
         })

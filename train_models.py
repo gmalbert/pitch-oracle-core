@@ -283,9 +283,19 @@ def train_and_save_models():
     with open(path.join(MODELS_DIR, 'model_performance.pkl'), 'wb') as f:
         pickle.dump(performance, f)
 
+    audit_path = path.join('precomputed', 'model-audit', 'model_ablation.json')
+    try:
+        with open(audit_path, encoding='utf-8') as f:
+            audit = json.load(f)
+        production_candidate = audit.get('release_gate', {}).get('production_candidate')
+    except (OSError, ValueError):
+        production_candidate = None
+    if production_candidate not in ('no_odds', 'poisson'):
+        production_candidate = 'no_odds'
+
     metadata = {
         'feature_policy_version': FEATURE_POLICY_VERSION,
-        'feature_set': 'no_odds',
+        'feature_set': production_candidate,
         'feature_names': feature_names,
         'feature_count': len(feature_names),
         'split_strategy': 'chronological_train_calibration_test',
@@ -293,7 +303,10 @@ def train_and_save_models():
         'calibration_rows': len(calibration_indices),
         'test_rows': len(test_indices),
         'calibration_method': 'temperature_scaling',
-        'production_model': 'regularized_multinomial_logistic_regression',
+        'production_model': (
+            'walk_forward_poisson' if production_candidate == 'poisson'
+            else 'regularized_multinomial_logistic_regression'
+        ),
         'release_gate': 'beats_training_class_prior_on_log_loss_and_brier',
         'generated_at': pd.Timestamp.now(tz='UTC').isoformat(),
     }

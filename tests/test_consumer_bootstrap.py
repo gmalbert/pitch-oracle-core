@@ -13,7 +13,7 @@ def test_bootstrap_creates_specialized_turnkey_consumer(tmp_path: Path, monkeypa
         "FD_API_KEY=synthetic-test-secret\n", encoding="utf-8"
     )
     monkeypatch.setattr(bootstrap_module, "CORE_ROOT", synthetic_core)
-    target = tmp_path / "scotland-soccer"
+    target = tmp_path / "scotland-premiership"
     result = bootstrap_module.bootstrap_consumer("scotland", tmp_path)
 
     assert result == target.resolve()
@@ -70,6 +70,31 @@ def test_bootstrap_refuses_to_overwrite_existing_path(tmp_path: Path):
         bootstrap_consumer("eredivisie", tmp_path)
 
 
+def test_bootstrap_can_populate_empty_repo_without_touching_assets(tmp_path: Path):
+    target = tmp_path / "scotland-premiership"
+    target.mkdir()
+    (target / "README.md").write_text("placeholder\n", encoding="utf-8")
+    (target / "data_files").mkdir()
+    logo = target / "data_files" / "logo.png"
+    logo.write_bytes(b"logo")
+
+    result = bootstrap_consumer("scotland", tmp_path, allow_existing_empty=True)
+
+    assert result == target.resolve()
+    assert logo.read_bytes() == b"logo"
+    assert 'get_league_config("scotland")' in (target / "config.py").read_text()
+
+
 def test_bootstrap_rejects_league_without_baseline_fixture_provider(tmp_path: Path):
     with pytest.raises(ValueError, match="not consumer-ready"):
         bootstrap_consumer("portugal", tmp_path)
+
+
+def test_turkey_is_consumer_ready_with_verified_espn_slug(tmp_path: Path):
+    target = bootstrap_consumer("turkey", tmp_path)
+
+    assert target.name == "turkey-soccer"
+    assert 'get_league_config("turkey")' in (target / "config.py").read_text()
+    assert "league_key: turkey" in (
+        target / ".github" / "workflows" / "artifact-pipeline.yml"
+    ).read_text()

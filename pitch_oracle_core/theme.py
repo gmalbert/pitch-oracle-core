@@ -9,8 +9,8 @@ import streamlit as st
 
 from .config import LeagueConfig
 
-# Palette archive retained for visual history. Production selection below is
-# fixed to Blue Sky Ledger and Blue Hour; no palette chooser is rendered.
+# Shared palette choices exposed by the consumer sidebar. The browser-local
+# clock supplies the initial daytime/nighttime selection; users can override it.
 LAUNCH_THEMES: dict[str, dict[str, str]] = {
     # ── Daytime · light themes ────────────────────────────────────────────
     "☀️ Daytime · Alpine Mist": {
@@ -256,11 +256,10 @@ LAUNCH_THEMES: dict[str, dict[str, str]] = {
     },
 }
 
-DAY_THEME_NAME = "☀️ Daytime · Blue Sky Ledger"
-NIGHT_THEME_NAME = "🌙 Nighttime · Blue Hour"
+DAY_THEME_NAME = "☀️ Daytime · Delft Blue"
+NIGHT_THEME_NAME = "🌙 Nighttime · Winter Night"
 DAY_START_HOUR = 7
 NIGHT_START_HOUR = 19
-
 
 def _theme_name_for_hour(local_hour: int) -> str:
     """Select the fixed production palette for a browser-local hour."""
@@ -300,10 +299,9 @@ def apply_theme(config: LeagueConfig) -> None:
     Consumers provide the league identity; the core owns the common visual
     language so every league deployment feels like the same product.
 
-    Blue Sky Ledger is applied from 07:00 through 18:59 in the browser's
-    timezone. Blue Hour is applied overnight. There is no user-facing chooser.
+    The browser-local clock selects Delft Blue from 07:00 through 18:59 and
+    Winter Night overnight.
     """
-    del config  # The production theme policy is shared across all consumers.
     choice = _theme_name_for_hour(_browser_local_hour())
     palette = LAUNCH_THEMES[choice]
     primary = palette["primary"]
@@ -471,6 +469,22 @@ def apply_theme(config: LeagueConfig) -> None:
             color: var(--pitch-primary-dark);
         }}
 
+        [data-testid="stDownloadButton"] > button {{
+            border-color: var(--pitch-primary);
+            color: var(--pitch-primary-dark);
+            background: transparent;
+            border-radius: 7px;
+        }}
+
+        [data-testid="stDownloadButton"] > button:hover {{
+            border-color: var(--pitch-primary-dark);
+            color: var(--pitch-primary-dark);
+        }}
+
+        [data-testid="stDownloadButton"] > button * {{
+            color: inherit;
+        }}
+
         /* ── Mode-aware component text (vars flip between light and dark) ── */
         [data-testid="stAppViewContainer"] [data-testid="stSidebar"] {{
             color: var(--pitch-text);
@@ -491,6 +505,22 @@ def apply_theme(config: LeagueConfig) -> None:
 
         .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {{
             color: var(--pitch-primary-dark);
+        }}
+
+        /* st.segmented_control renders as a button group rather than .stTabs. */
+        [data-testid="stButtonGroup"] [data-variant="segmented_control"] {{
+            color: var(--pitch-text-soft);
+            background: var(--pitch-card);
+            border-color: var(--pitch-card-border);
+        }}
+
+        [data-testid="stButtonGroup"] [data-variant="segmented_control"] * {{
+            color: inherit;
+        }}
+
+        [data-testid="stButtonGroup"] [data-variant="segmented_control"][aria-checked="true"] {{
+            color: var(--pitch-primary-dark);
+            background: var(--pitch-active-bg);
         }}
 
         label,

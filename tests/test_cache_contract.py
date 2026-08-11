@@ -133,7 +133,7 @@ def test_manifest_rejects_market_aware_production_metadata(tmp_path):
         CacheRequirement("model_metadata", "models/model_metadata.json"),
     )
 
-    with pytest.raises(RuntimeError, match="feature_set 'no_odds'"):
+    with pytest.raises(RuntimeError, match="feature_set 'no_odds' or 'poisson'"):
         write_cache_manifest(tmp_path, requirements=requirements, league="test")
 
 
