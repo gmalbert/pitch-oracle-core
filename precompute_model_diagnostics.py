@@ -9,9 +9,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.inspection import permutation_importance
-
-from models.feature_analysis import analyze_feature_importance_shap
 
 
 DROP_COLS = {
@@ -39,6 +36,12 @@ def _diagnostic_estimator(model: object) -> object:
 
 
 def generate() -> Path:
+    # Diagnostics are an offline extra. Keep SHAP and scikit-learn out of import-time
+    # consumer paths and load them only when this command actually runs.
+    from sklearn.inspection import permutation_importance
+
+    from models.feature_analysis import analyze_feature_importance_shap
+
     root = Path.cwd()
     data_dir = Path(os.getenv("PITCH_ORACLE_DATA_DIR", root / "data_files"))
     models_dir = Path(os.getenv("PITCH_ORACLE_MODELS_DIR", root / "models"))

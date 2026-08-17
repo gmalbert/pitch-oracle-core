@@ -1,5 +1,11 @@
 # Expanding Pitch Oracle to 5 New Leagues
 
+> **New:** the current core-and-Belgium product audit, 50-feature catalog, 26 research
+> initiatives, open-source and primary-paper review, copy-ready data/model/UI/research
+> implementation, and delivery plan live in
+> [`product-expansion/README.md`](product-expansion/README.md). The documents below
+> explain the original shared-core extraction and remain useful historical context.
+
 **Scope:** Scottish Premiership, Eredivisie, Primeira Liga, Belgian Pro League, Süper Lig
 **Source repo:** `gmalbert/premier-league` ("Pitch Oracle," live at pitch-oracle.com)
 **Date:** July 29, 2026

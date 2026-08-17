@@ -173,7 +173,8 @@ def validate_cache(
         raise RuntimeError(
             f"Cache belongs to league {manifest_league!r}, not {expected_league!r}"
         )
-    contract_current = manifest.get("schema_version") == 2
+    schema_version = manifest.get("schema_version")
+    contract_current = schema_version in (2, 3)
     if not contract_current:
         message = "Cache manifest schema is stale; predictions are running in compatibility mode"
         if strict_contract:
@@ -187,18 +188,31 @@ def validate_cache(
             raise RuntimeError(message)
         warnings.append(message + " (compatibility mode)")
         contract_current = False
-    elif manifest.get("feature_policy_version") != FEATURE_POLICY_VERSION:
+    elif schema_version == 2 and manifest.get("feature_policy_version") != FEATURE_POLICY_VERSION:
         message = "Cache feature policy is stale; retrain and regenerate runtime artifacts"
         if strict_contract:
             raise RuntimeError(message)
         warnings.append(message + " (compatibility mode)")
         contract_current = False
-    for name, item in manifest.get("artifacts", {}).items():
+    artifacts = manifest.get("artifacts", {})
+    artifact_items = (
+        ((item.get("name"), item) for item in artifacts)
+        if isinstance(artifacts, list)
+        else artifacts.items()
+    )
+    artifact_names: set[str] = set()
+    for name, item in artifact_items:
+        artifact_names.add(str(name))
         artifact = root / item["path"]
         if not artifact.is_file():
             raise FileNotFoundError(f"Cache artifact '{name}' is missing: {artifact}")
         if artifact.stat().st_size != item["bytes"] or _sha256(artifact) != item["sha256"]:
             raise RuntimeError(f"Cache artifact '{name}' failed integrity validation")
-    if contract_current:
-        _validate_prediction_artifacts(root, set(manifest.get("artifacts", {})))
+    if contract_current and schema_version == 2:
+        _validate_prediction_artifacts(root, artifact_names)
+    elif contract_current and schema_version == 3:
+        from .artifacts.manifest import load_manifest, validate_artifact_files
+
+        typed_manifest = load_manifest(manifest_path)
+        validate_artifact_files(typed_manifest, root)
     return tuple(warnings)

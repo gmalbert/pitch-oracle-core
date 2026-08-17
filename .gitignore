@@ -21,7 +21,10 @@ models/*.joblib
 .env
 *.log
 venv/
+.venv*/
 .commandcode/
 .cache.sqlite
 output/
 tmp-v136-tests/
+validation-theme-chooser-321/
+validation-transparent-logo/

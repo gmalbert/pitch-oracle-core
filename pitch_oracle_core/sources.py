@@ -11,10 +11,14 @@ class SourceAvailability:
     referee: bool = False
     injuries: bool = False
     live_odds: bool = False
+    pitchapi: bool = False
 
     @classmethod
     def from_config(cls, config: DataSourceConfig) -> "SourceAvailability":
-        return cls(config.referee, config.injuries, bool(config.live_odds_providers))
+        return cls(
+            config.referee, config.injuries, bool(config.live_odds_providers),
+            config.pitchapi,
+        )
 
 
 @dataclass(frozen=True)

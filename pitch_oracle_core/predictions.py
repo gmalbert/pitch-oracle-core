@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import pickle
 from typing import Mapping, Sequence
@@ -22,6 +22,7 @@ class FeatureContract:
     version: int
     feature_names: tuple[str, ...]
     imputation_values: Mapping[str, float]
+    state_sources: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.version != FEATURE_POLICY_VERSION:
@@ -34,6 +35,17 @@ class FeatureContract:
         missing = [name for name in self.feature_names if name not in self.imputation_values]
         if missing:
             raise ValueError(f"Feature contract lacks imputation values for: {', '.join(missing)}")
+        unknown = set(self.state_sources).difference(self.feature_names)
+        if unknown:
+            raise ValueError(f"State sources reference unknown features: {sorted(unknown)}")
+        for feature, source in self.state_sources.items():
+            required = {"fixture_role", "home_history_column", "away_history_column"}
+            if required.difference(source):
+                raise ValueError(f"State source for {feature} is incomplete")
+            if source["fixture_role"] not in {"home", "away"}:
+                raise ValueError(f"State source for {feature} has invalid fixture_role")
+            if not source["home_history_column"] or not source["away_history_column"]:
+                raise ValueError(f"State source for {feature} has an empty history column")
 
     @classmethod
     def from_artifact(cls, artifact: Mapping[str, object]) -> "FeatureContract":
@@ -48,7 +60,25 @@ class FeatureContract:
         missing = [name for name in names if name not in values]
         if missing:
             raise ValueError(f"Feature contract lacks imputation values for: {', '.join(missing)}")
-        return cls(version, names, {name: float(values[name]) for name in names})
+        raw_sources = payload.get("state_sources", {})
+        if not isinstance(raw_sources, Mapping):
+            raise ValueError("Feature state_sources must be a mapping")
+        invalid_sources = [
+            str(feature)
+            for feature, source in raw_sources.items()
+            if not isinstance(source, Mapping)
+        ]
+        if invalid_sources:
+            raise ValueError(
+                f"Feature state_sources contain invalid mappings: {sorted(invalid_sources)}"
+            )
+        state_sources = {
+            str(feature): {str(key): str(value) for key, value in source.items()}
+            for feature, source in raw_sources.items()
+        }
+        return cls(
+            version, names, {name: float(values[name]) for name in names}, state_sources
+        )
 
     @classmethod
     def load(cls, path: str | Path) -> "FeatureContract":
@@ -67,9 +97,10 @@ def build_upcoming_feature_matrix(
     """Build live features in the exact order used during model training.
 
     Explicit values already present on an upcoming fixture take priority. Team-
-    specific fields fall back to the latest historical point-in-time state, and
-    all other missing values use training-period imputations from the artifact.
-    No padding or truncation is permitted.
+    specific fields use explicit perspective mappings in the artifact contract.
+    State lookup is strictly before each fixture kickoff; unmapped or unavailable
+    values use training-period imputations. No name-prefix inference, padding, or
+    truncation is permitted.
     """
     required = {"HomeTeam", "AwayTeam"}
     if not required.issubset(historical.columns) or not required.issubset(upcoming.columns):
@@ -78,33 +109,63 @@ def build_upcoming_feature_matrix(
         return np.empty((0, len(contract.feature_names)), dtype=np.float32)
 
     ordered_history = historical.copy()
-    if "MatchDate" in ordered_history.columns:
+    date_column = next(
+        (column for column in ("kickoff_utc", "MatchDate") if column in ordered_history),
+        None,
+    )
+    if contract.state_sources and date_column is None:
+        raise ValueError("Explicit state lookup requires a historical kickoff/date column")
+    required_history_columns = {
+        source[column]
+        for source in contract.state_sources.values()
+        for column in ("home_history_column", "away_history_column")
+    }
+    missing_history_columns = required_history_columns.difference(ordered_history.columns)
+    if missing_history_columns:
+        raise ValueError(
+            f"Historical data lacks contracted state columns: {sorted(missing_history_columns)}"
+        )
+    if date_column is not None:
         ordered_history = ordered_history.assign(
-            _contract_date=pd.to_datetime(ordered_history["MatchDate"], errors="coerce")
+            _contract_date=pd.to_datetime(
+                ordered_history[date_column], utc=True, errors="coerce"
+            )
         ).sort_values("_contract_date", kind="stable")
-
-    home_states = {
-        str(team): rows.iloc[-1]
-        for team, rows in ordered_history.groupby("HomeTeam", sort=False)
-        if len(rows)
-    }
-    away_states = {
-        str(team): rows.iloc[-1]
-        for team, rows in ordered_history.groupby("AwayTeam", sort=False)
-        if len(rows)
-    }
 
     output: list[list[float]] = []
     for _, match in upcoming.iterrows():
         home, away = str(match["HomeTeam"]), str(match["AwayTeam"])
+        cutoff_value = next(
+            (match.get(column) for column in ("kickoff_utc", "MatchDate") if pd.notna(match.get(column))),
+            None,
+        )
+        cutoff = pd.to_datetime(cutoff_value, utc=True, errors="coerce")
+        if contract.state_sources and pd.isna(cutoff):
+            raise ValueError("Explicit state lookup requires every upcoming fixture kickoff")
+        available_history = (
+            ordered_history.loc[ordered_history._contract_date < cutoff]
+            if contract.state_sources else ordered_history
+        )
         values: list[float] = []
         for feature in contract.feature_names:
             value = match.get(feature)
-            if pd.isna(value):
-                if feature.startswith("Home") and home in home_states:
-                    value = home_states[home].get(feature)
-                elif feature.startswith("Away") and away in away_states:
-                    value = away_states[away].get(feature)
+            source = contract.state_sources.get(feature)
+            if pd.isna(value) and source:
+                target_team = home if source["fixture_role"] == "home" else away
+                home_rows = available_history.loc[
+                    available_history.HomeTeam.astype(str) == target_team,
+                    ["_contract_date", source["home_history_column"]],
+                ].rename(columns={source["home_history_column"]: "_state_value"})
+                away_rows = available_history.loc[
+                    available_history.AwayTeam.astype(str) == target_team,
+                    ["_contract_date", source["away_history_column"]],
+                ].rename(columns={source["away_history_column"]: "_state_value"})
+                state = pd.concat([home_rows, away_rows], ignore_index=True)
+                state = state.dropna(subset=["_contract_date", "_state_value"]).sort_values(
+                    "_contract_date", kind="stable"
+                )
+                if not state.empty:
+                    value = state.iloc[-1]._state_value
             if pd.isna(value):
                 value = contract.imputation_values[feature]
             try:

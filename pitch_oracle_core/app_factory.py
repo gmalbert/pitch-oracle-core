@@ -1,6 +1,7 @@
 """Public Streamlit application factory for thin league repositories."""
 
 from pathlib import Path
+import json
 
 from .config import LeagueConfig
 from .cache import validate_cache
@@ -13,7 +14,7 @@ def _browser_title(config: LeagueConfig) -> str:
     return f"{config.display_name} ({country} soccer)"
 
 
-def run(config: LeagueConfig, root: str = ".") -> None:
+def run(config: LeagueConfig, root: str = ".", *, scenario_adapter=None) -> None:
     runtime = Runtime.for_league(config, root).apply()
     import os
     import streamlit as st
@@ -34,7 +35,12 @@ def run(config: LeagueConfig, root: str = ".") -> None:
             "commits `precomputed/cache_manifest.json`, reload this page."
         )
         return
-    validate_cache(root, expected_league=config.key)
+    from .artifacts.repository import ArtifactRepository
+
+    repository = ArtifactRepository.from_manifest(root, expected_league=config.key)
+    manifest = repository.manifest
+    if manifest.get("schema_version") != 3:
+        validate_cache(root, expected_league=config.key)
 
     # st.navigation requires one, and only one, page-config call in the entrypoint.
     st.set_page_config(
@@ -44,10 +50,16 @@ def run(config: LeagueConfig, root: str = ".") -> None:
         initial_sidebar_state="expanded",
     )
 
-    from .navigation import build_navigation
     from .theme import apply_theme
 
     apply_theme(config)
-    navigation = build_navigation(config)
-    navigation.run()
+    if manifest.get("schema_version") == 3:
+        from .ui.app import run_navigation
+
+        run_navigation(config, root, scenario_adapter=scenario_adapter)
+    else:
+        from .navigation import build_navigation
+
+        navigation = build_navigation(config)
+        navigation.run()
 

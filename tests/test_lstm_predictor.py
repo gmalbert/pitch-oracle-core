@@ -1,7 +1,14 @@
 import numpy as np
 import pandas as pd
 import pytest
-import torch.nn as nn
+
+# Neural models are an opt-in experiment extra. The standard runtime and CI
+# intentionally exclude Torch so cached Streamlit pages never pay its startup or
+# installation cost.
+try:
+    import torch.nn as nn
+except (ImportError, OSError) as exc:  # broken native wheels are also unavailable
+    pytest.skip(f"optional neural experiment dependency unavailable: {exc}", allow_module_level=True)
 
 from models.lstm_predictor import FootballLSTM, LSTMPredictor
 from models.neural_predictor import FootballNet
