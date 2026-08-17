@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pitch-oracle-core"
-version = "1.3.26"
+dynamic = ["version"]
 description = "Shared league-agnostic core for Pitch Oracle soccer predictions."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -32,23 +32,28 @@ app = [
 ]
 neural = ["torch>=2"]
 diagnostics = ["shap>=0.48", "seaborn>=0.13"]
-consumer = [
+runtime = [
+  "streamlit>=1.57",
+  "plotly>=5",
+  "pyarrow>=18",
+]
+pipeline = [
   "scikit-learn>=1.7,<2",
   "scipy>=1.11",
   "xgboost>=2",
-  "streamlit>=1.57",
-  "plotly>=5",
-  "matplotlib>=3.8",
-  "reportlab>=4",
+  "pyarrow>=18",
   "requests>=2.31",
   "python-dotenv>=1",
-  "torch>=2",
-  "shap>=0.48",
-  "seaborn>=0.13",
   "beautifulsoup4>=4.12",
   "openmeteo-requests>=1.3",
   "requests-cache>=1.2",
   "retry-requests>=2",
+]
+experiments-neural = ["torch>=2"]
+consumer = [
+  "streamlit>=1.57",
+  "plotly>=5",
+  "pyarrow>=18",
 ]
 
 [tool.setuptools.packages.find]
@@ -60,7 +65,7 @@ py-modules = [
   "bzzoiro_football_api", "check_tomorrow_matches", "combine_raw_data",
   "compare_model_features", "evaluate_poisson", "feature_importance_analysis",
   "fetch_api_football", "fetch_clubelo", "fetch_player_data_fd",
-  "fetch_player_data", "fetch_understat_xg", "fetch_upcoming_features_espn",
+  "fetch_pitchapi", "fetch_player_data", "fetch_understat_xg", "fetch_upcoming_features_espn",
   "fetch_upcoming_fixtures", "fetch_weather_data", "footer",
   "generate_pdf_report", "manager_data", "model_optimization", "optimize_model",
   "precompute_database", "build_cache_manifest", "prepare_model_data", "scrape_injuries",
@@ -68,6 +73,9 @@ py-modules = [
   "scrape_injuries_web", "scrape_referees", "team_name_mapping",
   "track_predictions", "train_models", "validate_models"
 ]
+
+[tool.setuptools.dynamic]
+version = {attr = "pitch_oracle_core._version.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

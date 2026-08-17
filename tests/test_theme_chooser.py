@@ -65,6 +65,25 @@ def test_production_palettes_cover_every_theme_field():
             assert value.startswith("#") and len(value) == 7
 
 
+def test_production_text_and_semantic_colors_meet_wcag_contrast():
+    def luminance(color: str) -> float:
+        values = []
+        for offset in (1, 3, 5):
+            value = int(color[offset:offset + 2], 16) / 255
+            values.append(value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4)
+        return 0.2126 * values[0] + 0.7152 * values[1] + 0.0722 * values[2]
+
+    def contrast(first: str, second: str) -> float:
+        high, low = sorted((luminance(first), luminance(second)), reverse=True)
+        return (high + 0.05) / (low + 0.05)
+
+    for name, text in ((DAY_THEME_NAME, "#31333f"), (NIGHT_THEME_NAME, "#e8ecf2")):
+        palette = LAUNCH_THEMES[name]
+        assert contrast(text, palette["page"]) >= 4.5
+        assert contrast(palette["primary_dark"], palette["page"]) >= 4.5
+        assert contrast(palette["muted"], palette["page"]) >= 4.5
+
+
 def test_legacy_theme_choices_remain_accepted_but_are_not_used():
     assert ThemeConfig(launch_theme_choices=("Old chooser value",)).launch_theme_choices
 

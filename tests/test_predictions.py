@@ -21,6 +21,18 @@ def _contract():
             "AwayMomentum_L3": 3.0,
             "MarketMargin": 0.05,
         },
+        state_sources={
+            "HomeMomentum_L3": {
+                "fixture_role": "home",
+                "home_history_column": "HomeMomentum_L3",
+                "away_history_column": "AwayMomentum_L3",
+            },
+            "AwayMomentum_L3": {
+                "fixture_role": "away",
+                "home_history_column": "HomeMomentum_L3",
+                "away_history_column": "AwayMomentum_L3",
+            },
+        },
     )
 
 
@@ -45,12 +57,25 @@ def test_upcoming_matrix_uses_explicit_latest_and_imputed_values():
         {"MatchDate": "2025-02-01", "HomeTeam": "A", "AwayTeam": "B", "HomeMomentum_L3": 5, "AwayMomentum_L3": 4},
     ])
     upcoming = pd.DataFrame([
-        {"HomeTeam": "A", "AwayTeam": "B", "MarketMargin": 0.08},
-        {"HomeTeam": "New", "AwayTeam": "Newer"},
+        {"HomeTeam": "A", "AwayTeam": "B", "MatchDate": "2025-03-01", "MarketMargin": 0.08},
+        {"HomeTeam": "New", "AwayTeam": "Newer", "MatchDate": "2025-03-01"},
     ])
 
     matrix = build_upcoming_feature_matrix(history, upcoming, _contract())
     assert np.allclose(matrix, [[5, 4, 0.08], [3, 3, 0.05]])
+
+
+def test_upcoming_state_is_role_normalized_and_strictly_before_kickoff():
+    history = pd.DataFrame([
+        {"MatchDate": "2025-01-01", "HomeTeam": "A", "AwayTeam": "B", "HomeMomentum_L3": 1, "AwayMomentum_L3": 2},
+        {"MatchDate": "2025-02-01", "HomeTeam": "B", "AwayTeam": "A", "HomeMomentum_L3": 4, "AwayMomentum_L3": 7},
+        {"MatchDate": "2025-04-01", "HomeTeam": "A", "AwayTeam": "B", "HomeMomentum_L3": 99, "AwayMomentum_L3": 99},
+    ])
+    upcoming = pd.DataFrame([{
+        "HomeTeam": "A", "AwayTeam": "B", "MatchDate": "2025-03-01"
+    }])
+    matrix = build_upcoming_feature_matrix(history, upcoming, _contract())
+    assert np.allclose(matrix[0], [7, 4, .05])
 
 
 def test_prediction_frame_normalizes_and_adds_consumer_fields():

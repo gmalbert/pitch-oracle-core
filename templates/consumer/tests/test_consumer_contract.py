@@ -17,9 +17,10 @@ def test_consumer_selects_a_registered_non_epl_league():
 
 def test_core_pin_is_synchronized_everywhere():
     assert __version__ == CORE_REF.removeprefix("v")
-    pin = f"pitch-oracle-core[consumer] @ git+https://github.com/gmalbert/pitch-oracle-core.git@{CORE_REF}"
-    assert pin in (ROOT / "requirements.txt").read_text()
-    assert pin in (ROOT / "requirements-ci.txt").read_text()
+    runtime_pin = f"pitch-oracle-core[runtime] @ git+https://github.com/gmalbert/pitch-oracle-core.git@{CORE_REF}"
+    pipeline_pin = f"pitch-oracle-core[pipeline,diagnostics] @ git+https://github.com/gmalbert/pitch-oracle-core.git@{CORE_REF}"
+    assert runtime_pin in (ROOT / "requirements.txt").read_text()
+    assert pipeline_pin in (ROOT / "requirements-ci.txt").read_text()
     workflow = (ROOT / ".github" / "workflows" / "artifact-pipeline.yml").read_text()
     assert f"precompute-consumer.yml@{CORE_REF}" in workflow
     assert f"core_ref: {CORE_REF}" in workflow

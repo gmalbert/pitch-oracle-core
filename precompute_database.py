@@ -98,6 +98,27 @@ def precompute_data():
         source_name: float(train_means.iloc[position])
         for position, source_name in enumerate(feature_names)
     }
+    # Persist the perspective mapping once with the training contract. Runtime
+    # lookup consumes this explicit mapping and never guesses from feature names.
+    state_sources = {}
+    feature_set = set(feature_names)
+    for feature in feature_names:
+        if feature.startswith("Home"):
+            counterpart = "Away" + feature[len("Home"):]
+            fixture_role = "home"
+            home_column, away_column = feature, counterpart
+        elif feature.startswith("Away"):
+            counterpart = "Home" + feature[len("Away"):]
+            fixture_role = "away"
+            home_column, away_column = counterpart, feature
+        else:
+            continue
+        if counterpart in feature_set:
+            state_sources[feature] = {
+                "fixture_role": fixture_role,
+                "home_history_column": home_column,
+                "away_history_column": away_column,
+            }
     X = X.fillna(train_means).fillna(0.0)
     X_processed = X.values
     y_processed = y.values
@@ -119,6 +140,7 @@ def precompute_data():
             'version': FEATURE_POLICY_VERSION,
             'feature_names': feature_names,
             'imputation_values': imputation_values,
+            'state_sources': state_sources,
         },
         'df_sample': df.head(1000),  # Small sample for quick operations
         'metadata': {

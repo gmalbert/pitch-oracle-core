@@ -5,8 +5,15 @@ from .config import DataSourceConfig, LeagueConfig, PhaseConfig, PlayoffConfig
 _EPL_SOURCES = DataSourceConfig(
     understat=True, understat_league="EPL", referee=True, injuries=True,
     api_football_league_id=39, live_odds_providers=("bzzoiro",),
+    pitchapi=True, pitchapi_league_id="l_4WFCIZ",
 )
-_OPTIONAL = DataSourceConfig(understat=False, referee=False, injuries=False)
+_BELGIUM_SOURCES = DataSourceConfig(
+    understat=False,
+    referee=False,
+    injuries=False,
+    weather_timezone="Europe/Brussels",
+    pitchapi=True, pitchapi_league_id="l_2L6d1F",
+)
 _EPL_TEAM_ALIASES = {
     "Manchester United": "Man United", "Manchester City": "Man City",
     "Wolverhampton Wanderers": "Wolves", "Brighton & Hove Albion": "Brighton",
@@ -30,6 +37,7 @@ _EREDIVISIE_SOURCES = DataSourceConfig(
     referee=False,
     injuries=False,
     weather_timezone="Europe/Amsterdam",
+    pitchapi=True, pitchapi_league_id="l_4H43wr",
 )
 _EREDIVISIE_TEAM_ALIASES = {
     "Ajax Amsterdam": "Ajax",
@@ -82,40 +90,83 @@ _TURKEY_TEAM_ALIASES = {
     "Goztepe": "Goztep",
     "Istanbul Basaksehir": "Buyuksehyr",
 }
+_BELGIUM_TEAM_ALIASES = {
+    "Cercle Brugge KSV": "Cercle Brugge",
+    "KAA Gent": "Gent",
+    "KV Kortrijk": "Kortrijk",
+    "KV Mechelen": "Mechelen",
+    "KVC Westerlo": "Westerlo",
+    "OH Leuven": "Leuven",
+    "RAAL La Louvière": "RAAL La Louviere",
+    "Racing Genk": "Genk",
+    "Royal Charleroi SC": "Charleroi",
+    "Sint-Truidense": "St. Truiden",
+    "Standard Liege": "Standard",
+    "Union St.-Gilloise": "St. Gilloise",
+    "Waasland-Beveren": "Beveren",
+    "Zulte-Waregem": "Waregem",
+}
 
 BUILTIN_LEAGUES = {
     "epl": LeagueConfig("epl", "Premier League", "E0", "eng.1", "ENG_1", 20, (8, 5),
                          country_name="England", country_flag="🇬🇧",
                          team_aliases=_EPL_TEAM_ALIASES, stadium_coordinates=_EPL_STADIUMS,
-                         sources=_EPL_SOURCES),
+                         sources=_EPL_SOURCES,
+                         outcome_labels={"title": (1,), "champions_league": (1, 2, 3, 4), "relegation": (18, 19, 20)}),
     "scotland": LeagueConfig(
         "scotland", "Scottish Premiership", "SC0", "sco.1", "SCO_1", 12, (7, 5),
         country_name="Scotland", country_flag="🇬🇧",
         phase=PhaseConfig(regular_matches_per_opponent=3, split_after_round=33,
                           split_pools=("top_6", "bottom_6"), split_pool_sizes=(6, 6), playoffs=(
-                              PlayoffConfig("promotion_relegation", cross_division=True),)),
-        sources=_OPTIONAL,
+                              PlayoffConfig(
+                                  "promotion_relegation", cross_division=True,
+                                  sources=("premiership:11", "championship:playoff_winner"),
+                                  legs=2, outcome_label="premiership_place",
+                              ),)),
+        sources=DataSourceConfig(
+            understat=False, referee=False, injuries=False,
+            pitchapi=True, pitchapi_league_id="l_1LMdEO",
+        ),
+        outcome_labels={"title": (1,), "top_six": (1, 2, 3, 4, 5, 6), "relegation_playoff": (11,), "relegation": (12,)},
     ),
     "eredivisie": LeagueConfig(
         "eredivisie", "Eredivisie", "N1", "ned.1", "NED_1", 18, (8, 5),
         country_name="Netherlands", country_flag="🇳🇱",
-        phase=PhaseConfig(playoffs=(PlayoffConfig("european_qualification"),)),
+        phase=PhaseConfig(playoffs=(PlayoffConfig(
+            "european_qualification",
+            sources=("league:5", "league:6", "league:7", "league:8"),
+            outcome_label="europe",
+        ),)),
         team_aliases=_EREDIVISIE_TEAM_ALIASES,
         stadium_coordinates=_EREDIVISIE_STADIUMS, sources=_EREDIVISIE_SOURCES,
+        outcome_labels={"title": (1,), "europe": (1, 2, 3, 4), "relegation": (17, 18)},
     ),
     "portugal": LeagueConfig("portugal", "Primeira Liga", "P1", None, "POR_1", 18, (8, 5),
-                              country_name="Portugal", country_flag="🇵🇹", sources=_OPTIONAL),
+                              country_name="Portugal", country_flag="🇵🇹",
+                              sources=DataSourceConfig(
+                                  understat=False, referee=False, injuries=False,
+                                  pitchapi=True, pitchapi_league_id="l_4QexZg",
+                              ),
+                              outcome_labels={"title": (1,), "europe": (1, 2, 3, 4, 5), "relegation": (16, 17, 18)}),
     "belgium": LeagueConfig(
         "belgium", "Belgian Pro League", "B1", "bel.1", "BEL_1", 18, (8, 5),
         country_name="Belgium", country_flag="🇧🇪",
         phase=PhaseConfig(split_after_round=34, split_pools=("champions", "europe", "relegation"),
                           split_pool_sizes=(6, 6, 6),
-                          points_halving=True, points_halving_rounding="ceil"), sources=_OPTIONAL,
+                          points_halving=True, points_halving_rounding="ceil"),
+        team_aliases=_BELGIUM_TEAM_ALIASES,
+        sources=_BELGIUM_SOURCES,
+        outcome_labels={"title": (1,), "champions_playoff": (1, 2, 3, 4, 5, 6), "europe_playoff": (7, 8, 9, 10, 11, 12), "relegation_playoff": (13, 14, 15, 16, 17, 18)},
     ),
     "turkey": LeagueConfig(
         "turkey", "Süper Lig", "T1", "tur.1", "TUR_1", 20, (8, 5),
         country_name="Turkey", country_flag="🇹🇷",
-        points_adjustments={}, team_aliases=_TURKEY_TEAM_ALIASES, sources=_OPTIONAL,
+        points_adjustments={}, team_aliases=_TURKEY_TEAM_ALIASES,
+        sources=DataSourceConfig(
+            understat=False, referee=False, injuries=False,
+            pitchapi=True, pitchapi_league_id="l_0S1uaf",
+        ),
+        outcome_labels={"title": (1,), "europe": (1, 2, 3, 4), "relegation": (17, 18, 19, 20)},
     ),
 }
 

@@ -14,6 +14,7 @@ class DataSourceConfig:
     clubelo_code: str | None = None
     api_football: bool = True
     understat: bool = False
+    pitchapi: bool = False
     weather: bool = True
     weather_timezone: str = "Europe/London"
     referee: bool = False
@@ -21,6 +22,7 @@ class DataSourceConfig:
     live_odds_providers: tuple[str, ...] = ()
     api_football_league_id: int | None = None
     understat_league: str | None = None
+    pitchapi_league_id: str | None = None
     referee_endpoint: str | None = None
     injury_endpoint: str | None = None
 
@@ -48,6 +50,13 @@ class PlayoffConfig:
     pools: tuple[str, ...] = ()
     cross_division: bool = False
     included_in_v1: bool = True
+    sources: tuple[str, ...] = ()
+    legs: int = 1
+    outcome_label: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.legs < 1:
+            raise ValueError("playoff legs must be positive")
 
 
 @dataclass(frozen=True)
@@ -80,3 +89,5 @@ class LeagueConfig:
     theme: ThemeConfig = field(default_factory=ThemeConfig)
     data_dir_name: str = "data_files"
     models_dir_name: str = "models"
+    tie_breakers: tuple[str, ...] = ("points", "goal_difference", "goals_for")
+    outcome_labels: dict[str, tuple[int, ...]] = field(default_factory=dict)

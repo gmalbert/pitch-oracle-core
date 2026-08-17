@@ -77,7 +77,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           ${{ inputs.install_command }}
-          python -m pip install "pitch-oracle-core[consumer] @ git+https://github.com/gmalbert/pitch-oracle-core.git@${{ inputs.core_ref }}"
+          python -m pip install "pitch-oracle-core[pipeline,diagnostics] @ git+https://github.com/gmalbert/pitch-oracle-core.git@${{ inputs.core_ref }}"
           python -m pip check
 
       - name: Prepare league data
