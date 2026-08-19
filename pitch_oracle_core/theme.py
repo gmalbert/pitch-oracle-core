@@ -546,17 +546,23 @@ def apply_theme(config: LeagueConfig) -> None:
             color: var(--pitch-text);
         }}
 
-        /* Expander header text must follow the theme in both open and closed
-           states.  Streamlit's default can leave the summary white in dark
-           mode, which is unreadable on light themes. */
+        /* Expander header text must follow the theme in every interaction
+           state.  Streamlit's default can leave the summary white in dark
+           mode or flip it on blur, which is unreadable on light themes. */
         [data-testid="stExpander"] summary,
         [data-testid="stExpander"] summary p,
-        [data-testid="stExpander"] summary span {{
+        [data-testid="stExpander"] summary span,
+        [data-testid="stExpander"] details summary:hover,
+        [data-testid="stExpander"] details summary:focus,
+        [data-testid="stExpander"] details summary:focus-within,
+        [data-testid="stExpander"] details summary:active,
+        [data-testid="stExpander"] details[open] summary,
+        [data-testid="stExpander"] details[open] summary:hover,
+        [data-testid="stExpander"] details[open] summary:focus,
+        [data-testid="stExpander"] details[open] summary:active,
+        [data-testid="stExpander"] details[open] summary:focus:not(:focus-visible) {{
             color: var(--pitch-text) !important;
-        }}
-
-        [data-testid="stExpander"] details[open] summary {{
-            color: var(--pitch-text) !important;
+            outline: none !important;
         }}
         </style>
         """,
