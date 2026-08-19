@@ -97,16 +97,17 @@ def generate(data_dir: str | Path = "data_files") -> Path:
         return output
     predictions[date_col] = pd.to_datetime(predictions[date_col], errors="coerce").dt.date
     today = date.today()
-    predictions = predictions[predictions[date_col] == today].copy()
+    # Only keep future matches (or today) that haven't been played yet.
+    predictions = predictions[predictions[date_col] >= today].copy()
     if predictions.empty:
-        _write(output, sport, league, [], f"No {league} predictions for {today}")
+        _write(output, sport, league, [], f"No upcoming {league} predictions")
         return output
 
     odds_path = data_dir / "raw" / "odds.csv"
     if not odds_path.exists():
         odds_path = data_dir / "odds.csv"
     if not odds_path.exists():
-        _write(output, sport, league, [], f"No odds artifact for {today}; best bets require market prices")
+        _write(output, sport, league, [], f"No odds artifact; best bets require market prices")
         return output
     odds = pd.read_csv(odds_path)
     merge_cols = [column for column in ("HomeTeam", "AwayTeam", date_col) if column in odds.columns]
@@ -141,7 +142,7 @@ def generate(data_dir: str | Path = "data_files") -> Path:
             if edge < MIN_EDGE or expected_value < MIN_EXPECTED_VALUE:
                 continue
             bets.append({
-                "game_date": str(today), "game_time": row.get("Time"),
+                "game_date": str(row.get(date_col)), "game_time": row.get("Time"),
                 "game": f"{away} @ {home}", "home_team": home, "away_team": away,
                 "bet_type": "Match Result", "pick": outcome,
                 "confidence": round(probability, 4), "edge": round(edge, 4),
@@ -149,7 +150,7 @@ def generate(data_dir: str | Path = "data_files") -> Path:
                 "expected_value": round(expected_value, 4), "tier": _tier(expected_value),
                 "odds": _decimal_to_american(odds_value), "line": None, "league": league,
             })
-    note = "" if bets else f"No qualifying {league} picks for {today}"
+    note = "" if bets else f"No qualifying {league} picks"
     _write(output, sport, league, bets, note)
     return output
 
