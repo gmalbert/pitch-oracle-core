@@ -58,6 +58,51 @@ def _upcoming() -> pd.DataFrame:
     return _read_csv("upcoming_fixtures.csv")
 
 
+def _referee_assignments() -> pd.DataFrame:
+    """Load published referee assignments for upcoming fixtures."""
+    frame = _read_csv("referees.csv")
+    if frame.empty:
+        return frame
+    date_column = "Date" if "Date" in frame.columns else frame.columns[0]
+    for column in ("Referee", "RefereeID", "RefereeCareerGames",
+                   "RefereeCareerYellow", "RefereeCareerRed"):
+        if column not in frame.columns:
+            frame[column] = pd.NA
+    frame[date_column] = pd.to_datetime(
+        frame[date_column], errors="coerce"
+    ).dt.strftime("%Y-%m-%d")
+    return frame
+
+
+def _merge_referee_assignments(
+    frame: pd.DataFrame, assignments: pd.DataFrame
+) -> pd.DataFrame:
+    """Attach referee assignments to a fixture/prediction frame on team+date."""
+    if frame.empty:
+        return frame
+    result = frame.copy()
+    if "Referee" in result.columns:
+        return result
+    referee_columns = ["Referee", "RefereeCareerGames", "RefereeCareerYellow",
+                       "RefereeCareerRed"]
+    if assignments.empty:
+        result["Referee"] = "Not yet assigned"
+        for column in referee_columns[1:]:
+            result[column] = pd.NA
+        return result
+    date_column = "Date" if "Date" in result.columns else result.columns[0]
+    result[date_column] = pd.to_datetime(
+        result[date_column], errors="coerce"
+    ).dt.strftime("%Y-%m-%d")
+    keys = ["HomeTeam", "AwayTeam", date_column]
+    result = result.merge(
+        assignments[keys + referee_columns],
+        on=keys, how="left",
+    )
+    result["Referee"] = result["Referee"].fillna("Not yet assigned")
+    return result
+
+
 def _height(frame: pd.DataFrame, maximum: int = 620) -> int:
     return min(max(150, 38 + len(frame) * 35), maximum)
 
@@ -289,6 +334,22 @@ def _prediction_commentary(row: pd.Series) -> str:
         f"- **Model lean:** {pick} ({confidence:.1%})",
         f"- **Risk level:** {risk_level}",
     ]
+    referee = row.get("Referee")
+    if pd.notna(referee) and str(referee).strip():
+        career_parts = []
+        games = row.get("RefereeCareerGames")
+        if pd.notna(games) and float(games) > 0:
+            career_parts.append(f"{float(games):.0f} career matches")
+        yellow = row.get("RefereeCareerYellow")
+        red = row.get("RefereeCareerRed")
+        if pd.notna(yellow) and float(yellow) > 0:
+            career_parts.append(f"{float(yellow):.0f} yellow cards")
+        if pd.notna(red) and float(red) > 0:
+            career_parts.append(f"{float(red):.0f} red cards")
+        referee_line = f"- **Referee:** {referee}"
+        if career_parts:
+            referee_line += " (" + ", ".join(career_parts) + ")"
+        lines.append(referee_line)
     bet_recommendation = row.get("BetRecommendation")
     bet_reason = row.get("BetReason")
     if pd.notna(bet_recommendation):
@@ -365,6 +426,9 @@ def render_predictions(config: LeagueConfig) -> None:
         st.info("No upcoming prediction cache is available yet.")
         return
     add_goal_market_predictions(predictions)
+    predictions = _merge_referee_assignments(
+        predictions, _referee_assignments()
+    )
 
     teams = sorted(
         set(predictions.get("HomeTeam", pd.Series(dtype=str)).dropna())
@@ -442,6 +506,9 @@ def render_predictions(config: LeagueConfig) -> None:
                 probabilities[0].metric("Home win", f"{float(row['HomeWin_Prob']):.1%}")
                 probabilities[1].metric("Draw", f"{float(row['Draw_Prob']):.1%}")
                 probabilities[2].metric("Away win", f"{float(row['AwayWin_Prob']):.1%}")
+                referee = row.get("Referee")
+                if pd.notna(referee) and str(referee).strip():
+                    st.caption(f"Referee: {referee}")
                 with st.container(border=True):
                     st.markdown(_prediction_commentary(row))
 
@@ -687,6 +754,60 @@ def render_statistics(config: LeagueConfig) -> None:
     team_scoring = home_scoring.add(away_scoring, fill_value=0).sort_values(ascending=False).head(10)
     scoring = team_scoring.rename_axis("Team").reset_index(name="Goals scored")
     st.dataframe(scoring, hide_index=True, width="stretch")
+
+    st.subheader("Referee analysis")
+    assignments = _referee_assignments()
+    upcoming = _upcoming()
+    if assignments.empty or upcoming.empty:
+        st.caption(
+            "Referee assignments will appear here once they are published "
+            "(typically 1–3 days before kickoff)."
+        )
+        return
+    matched = _merge_referee_assignments(upcoming, assignments)
+    assigned = matched.loc[
+        (matched["Referee"] != "Not yet assigned")
+        & matched["Referee"].notna()
+    ].copy()
+    if assigned.empty:
+        st.caption(
+            "Referee assignments for the upcoming matchday are not published yet; "
+            "check back closer to kickoff."
+        )
+        return
+    st.caption(
+        "Upcoming Primeira Liga matches with published referee assignments. "
+        "Career totals are provided by the Bzzoiro feed."
+    )
+    summary = (
+        assigned.groupby("Referee")
+        .agg(
+            matches=("Date", "count"),
+            career_games=("RefereeCareerGames", "max"),
+            career_yellow=("RefereeCareerYellow", "max"),
+            career_red=("RefereeCareerRed", "max"),
+        )
+        .reset_index()
+        .sort_values("matches", ascending=False)
+    )
+    display = summary.rename(columns={
+        "Referee": "Referee",
+        "matches": "Upcoming matches",
+        "career_games": "Career games",
+        "career_yellow": "Career yellows",
+        "career_red": "Career reds",
+    })
+    st.dataframe(display, hide_index=True, width="stretch")
+    with st.expander("Upcoming fixtures with referees"):
+        fixture_columns = ["Date", "HomeTeam", "AwayTeam", "Referee"]
+        st.dataframe(
+            assigned[fixture_columns].rename(columns={
+                "Date": "Match date", "HomeTeam": "Home team",
+                "AwayTeam": "Away team", "Referee": "Referee",
+            }),
+            hide_index=True,
+            width="stretch",
+        )
 
 
 def render_model_lab(config: LeagueConfig) -> None:
