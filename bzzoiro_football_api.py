@@ -63,7 +63,10 @@ _TTL = {
 }
 
 # Premier League league ID on Bzzoiro (api_id=17)
-_LEAGUE_IDS = {}
+# Pre-populated mappings for leagues whose display name differs from Bzzoiro's.
+_LEAGUE_IDS = {
+    "portugal": 2,  # Bzzoiro calls it "Liga Portugal Betclic"
+}
 
 
 # ── Team name mapping ─────────────────────────────────────────────────────────

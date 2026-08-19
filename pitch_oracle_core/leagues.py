@@ -176,6 +176,7 @@ BUILTIN_LEAGUES = {
                                   understat=False, referee=False, injuries=False,
                                   weather_timezone="Europe/Lisbon",
                                   pitchapi=True, pitchapi_league_id="l_4QexZg",
+                                  live_odds_providers=("bzzoiro",),
                               ),
                               outcome_labels={"title": (1,), "europe": (1, 2, 3, 4, 5), "relegation": (16, 17, 18)}),
     "belgium": LeagueConfig(
