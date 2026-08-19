@@ -545,6 +545,19 @@ def apply_theme(config: LeagueConfig) -> None:
         .stAlert {{
             color: var(--pitch-text);
         }}
+
+        /* Expander header text must follow the theme in both open and closed
+           states.  Streamlit's default can leave the summary white in dark
+           mode, which is unreadable on light themes. */
+        [data-testid="stExpander"] summary,
+        [data-testid="stExpander"] summary p,
+        [data-testid="stExpander"] summary span {{
+            color: var(--pitch-text) !important;
+        }}
+
+        [data-testid="stExpander"] details[open] summary {{
+            color: var(--pitch-text) !important;
+        }}
         </style>
         """,
         unsafe_allow_html=True,
