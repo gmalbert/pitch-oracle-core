@@ -546,12 +546,23 @@ def apply_theme(config: LeagueConfig) -> None:
             color: var(--pitch-text);
         }}
 
-        /* Expander header text must follow the theme in every interaction
-           state.  Streamlit's default can leave the summary white in dark
-           mode or flip it on blur, which is unreadable on light themes. */
+        /* Expander header must follow the theme in every interaction state.
+           Streamlit's default applies a white background and dark text in
+           certain states, which breaks dark themes. */
         [data-testid="stExpander"] summary,
         [data-testid="stExpander"] summary p,
-        [data-testid="stExpander"] summary span,
+        [data-testid="stExpander"] summary span {{
+            color: var(--pitch-text) !important;
+            background: var(--pitch-page) !important;
+            background-color: var(--pitch-page) !important;
+        }}
+
+        [data-testid="stExpander"] details summary {{
+            background: var(--pitch-page) !important;
+            background-color: var(--pitch-page) !important;
+            border-color: var(--pitch-border) !important;
+        }}
+
         [data-testid="stExpander"] details summary:hover,
         [data-testid="stExpander"] details summary:focus,
         [data-testid="stExpander"] details summary:focus-within,
@@ -562,7 +573,15 @@ def apply_theme(config: LeagueConfig) -> None:
         [data-testid="stExpander"] details[open] summary:active,
         [data-testid="stExpander"] details[open] summary:focus:not(:focus-visible) {{
             color: var(--pitch-text) !important;
+            background: var(--pitch-page) !important;
+            background-color: var(--pitch-page) !important;
             outline: none !important;
+        }}
+
+        [data-testid="stExpander"] details[open] > div {{
+            background: var(--pitch-page) !important;
+            background-color: var(--pitch-page) !important;
+            border-color: var(--pitch-border) !important;
         }}
         </style>
         """,
