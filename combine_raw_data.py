@@ -1,14 +1,25 @@
-"""Download and combine football-data.co.uk history for any configured league."""
+"""Download and combine football-data.co.uk history for any configured league.
+
+Powered by ``penaltyblog.scrapers.FootballData`` for URL construction, season
+mapping, and HTTP fetching.  The raw CSV is parsed locally to preserve the
+original column casing required by ``prepare_model_data.py``'s ``COLUMN_RENAMES``.
+"""
 
 from datetime import date
 from pathlib import Path
 from typing import Iterable
+import io
 import os
+import time
+
 import pandas as pd
+
+from penaltyblog.scrapers import FootballData
 
 from pitch_oracle_core.config import LeagueConfig
 from pitch_oracle_core.features import parse_match_dates
 from pitch_oracle_core.leagues import get_league_config
+from pitch_oracle_core.team_mappings import penaltyblog_competition
 
 
 def recent_season_codes(today: date | None = None, count: int = 5) -> tuple[str, ...]:
@@ -26,11 +37,17 @@ def combine_raw_data(
 ) -> pd.DataFrame:
     config = get_league_config(league) if isinstance(league, str) else league
     seasons = tuple(seasons or recent_season_codes())
+    competition = penaltyblog_competition(config, "footballdata")
     frames = []
     for season in seasons:
-        url = f"https://www.football-data.co.uk/mmz4281/{season}/{config.football_data_div}.csv"
+        season_label = f"20{season[:2]}-20{season[2:]}"
         try:
-            frame = pd.read_csv(url)
+            fd = FootballData(competition, season_label)
+            url = fd.base_url.format(
+                season=fd.mapped_season, competition=fd.mapped_competition,
+            )
+            content = fd.get(url)
+            frame = pd.read_csv(io.StringIO(content))
             if "Date" not in frame:
                 raise ValueError(f"Downloaded season {season} has no Date column")
             parsed_dates = parse_match_dates(frame["Date"])
@@ -40,7 +57,8 @@ def combine_raw_data(
             frame["League"] = config.key
             frames.append(frame)
         except Exception as exc:
-            print(f"Error loading {url}: {exc}")
+            print(f"Error loading season {season} for {competition}: {exc}")
+        time.sleep(0.5)   # polite rate limit
     if not frames:
         raise RuntimeError(f"No historical data was downloaded for {config.key}")
     result = pd.concat(frames, ignore_index=True)
@@ -52,4 +70,3 @@ def combine_raw_data(
 
 if __name__ == "__main__":
     combine_raw_data(os.getenv("PITCH_ORACLE_LEAGUE", "epl"))
-

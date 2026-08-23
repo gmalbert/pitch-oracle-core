@@ -1,5 +1,6 @@
 numpy
 pandas
+penaltyblog==1.12.0
 streamlit>=1.57
 plotly
 pyarrow>=18

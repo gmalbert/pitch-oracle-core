@@ -22,7 +22,7 @@ import requests
 
 from pitch_oracle_core.config import LeagueConfig
 from pitch_oracle_core.leagues import get_league_config
-from team_name_mapping import normalize_team_name
+from pitch_oracle_core.team_mappings import normalize_team_name
 
 
 BASE_URL = "https://api.pitchapi.dev/v1"

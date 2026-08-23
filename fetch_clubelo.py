@@ -1,8 +1,12 @@
 """
-Fetch ClubElo ratings for Premier League teams.
+Fetch ClubElo ratings for the configured league's teams.
 
-Outputs:
-  data_files/clubelo_ratings.csv  — full Elo history per team
+Powered by ``penaltyblog.scrapers.ClubElo`` — team names are normalised through
+the shared ``pitch_oracle_core.team_mappings`` registry, so no per-script
+reconciliation step is needed.
+
+Outputs (unchanged on-disk contract):
+  data_files/clubelo_ratings.csv  — full Elo history per team (tab-separated)
   data_files/clubelo_fixtures.csv — upcoming matches with H/D/A probabilities
 
 Run: python fetch_clubelo.py
@@ -13,57 +17,22 @@ import pandas as pd
 import io
 import time
 from os import path
+
+from penaltyblog.scrapers import ClubElo
+
 from pitch_oracle_core.config import LeagueConfig
 from pitch_oracle_core.leagues import get_league_config
+from pitch_oracle_core.team_mappings import (
+    CLUBELO_TEAM_MAP,
+    mappings_for_league,
+)
 
 DATA_DIR = 'data_files/'
 
-# Mapping: historical data team name  →  ClubElo URL slug
-# Verify/update slugs at http://clubelo.com (check ranking page for exact spelling)
-CLUBELO_TEAM_MAP = {
-    'Man City':          'ManCity',
-    'Man United':        'ManUnited',
-    'Arsenal':           'Arsenal',
-    'Chelsea':           'Chelsea',
-    'Liverpool':         'Liverpool',
-    'Tottenham':         'Tottenham',
-    'Everton':           'Everton',
-    'Aston Villa':       'AstonVilla',
-    'Newcastle':         'Newcastle',
-    'West Ham':          'WestHam',
-    'Crystal Palace':    'CrystalPalace',
-    'Southampton':       'Southampton',
-    'Leicester':         'Leicester',
-    'Fulham':            'Fulham',
-    'Brentford':         'Brentford',
-    'Brighton':          'Brighton',
-    'Bournemouth':       'Bournemouth',
-    'Wolves':            'Wolves',
-    "Nott'm Forest":     'Forest',
-    'Burnley':           'Burnley',
-    'Leeds':             'Leeds',
-    'Watford':           'Watford',
-    'Norwich':           'Norwich',
-    'Sheffield United':  'SheffieldUnited',
-    'Sunderland':        'Sunderland',
-    'Stoke':             'Stoke',
-    'Swansea':           'Swansea',
-    'Hull':              'Hull',
-    'Reading':           'Reading',
-    'QPR':               'QPR',
-    'West Brom':         'WestBrom',
-    'Middlesbrough':     'Middlesbrough',
-    'Blackburn':         'Blackburn',
-    'Wigan':             'Wigan',
-    'Bolton':            'Bolton',
-    'Ipswich':           'Ipswich',
-    'Derby':             'Derby',
-    'Birmingham':        'Birmingham',
-    'Huddersfield':      'Huddersfield',
-    'Cardiff':           'Cardiff',
-    'Sheffield Weds':    'SheffieldWeds',
-    'Charlton':          'Charlton',
-    'Luton':             'Luton',
+# penaltyblog's ClubElo frames are snake-cased; restore the legacy contract.
+_LEGACY_COLUMN_NAMES = {
+    "rank": "Rank", "team": "Club", "country": "Country",
+    "level": "Level", "elo": "Elo", "from": "From", "to": "To",
 }
 
 
@@ -73,16 +42,19 @@ def team_map_for(league: LeagueConfig | str) -> dict[str, str]:
     return dict(config.team_aliases)
 
 
-def fetch_team_elo(clubelo_name):
-    """Fetch full Elo history for one club from api.clubelo.com/CLUBNAME."""
-    url = f'http://api.clubelo.com/{clubelo_name}'
+def legacy_ratings_frame(frame: pd.DataFrame, hist_name: str) -> pd.DataFrame:
+    """Project a ``ClubElo.get_elo_by_team`` frame onto the legacy CSV schema."""
+    restored = frame.reset_index().rename(columns=_LEGACY_COLUMN_NAMES)
+    restored["HistTeam"] = hist_name
+    return restored
+
+
+def fetch_team_elo(clubelo_name, scraper: ClubElo | None = None):
+    """Fetch full Elo history for one club via penaltyblog's ClubElo scraper."""
+    scraper = scraper or ClubElo()
     try:
-        resp = requests.get(url, timeout=15)
-        resp.raise_for_status()
-        if resp.text.strip().startswith('No') or len(resp.text.strip()) < 10:
-            return None
-        df = pd.read_csv(io.StringIO(resp.text))
-        if df.empty or 'Elo' not in df.columns:
+        df = scraper.get_elo_by_team(clubelo_name)
+        if df.empty or "elo" not in df.columns:
             return None
         return df
     except Exception as e:
@@ -96,6 +68,9 @@ def fetch_upcoming_fixtures():
     Returns a DataFrame with columns: Date, HomeTeam, AwayTeam,
     ClubElo_HomeWinProb, ClubElo_DrawProb, ClubElo_AwayWinProb.
     Probabilities are summed over goal-difference outcomes (>0 home, =0 draw, <0 away).
+
+    Note: penaltyblog's ClubElo scraper does not expose the fixtures endpoint,
+    so this pull stays local.
     """
     url = 'http://api.clubelo.com/Fixtures'
     try:
@@ -147,16 +122,16 @@ def fetch_upcoming_fixtures():
 def main(league: LeagueConfig | str = 'epl'):
     config = get_league_config(league) if isinstance(league, str) else league
     team_map = team_map_for(config) or CLUBELO_TEAM_MAP
+    scraper = ClubElo(team_mappings=mappings_for_league(config))
     all_frames = []
     success = 0
     fail = 0
 
     for hist_name, elo_slug in team_map.items():
         print(f'Fetching Elo for {hist_name} ({elo_slug})...')
-        df = fetch_team_elo(elo_slug)
+        df = fetch_team_elo(elo_slug, scraper=scraper)
         if df is not None:
-            df['HistTeam'] = hist_name
-            all_frames.append(df)
+            all_frames.append(legacy_ratings_frame(df, hist_name))
             print(f'  {len(df)} records')
             success += 1
         else:

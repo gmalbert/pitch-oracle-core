@@ -21,7 +21,7 @@ import sys
 import time
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from team_name_mapping import TEAM_NAME_MAP
+from pitch_oracle_core.team_mappings import TEAM_NAME_MAP
 from pitch_oracle_core.config import LeagueConfig
 from pitch_oracle_core.leagues import get_league_config
 

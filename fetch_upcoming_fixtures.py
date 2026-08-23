@@ -11,7 +11,7 @@ from pitch_oracle_core.config import LeagueConfig
 from pitch_oracle_core.leagues import get_league_config
 from pitch_oracle_core.domain.competitions import edition_from_league_config
 from pitch_oracle_core.domain.entities import normalized_name
-from team_name_mapping import normalize_team_name
+from pitch_oracle_core.team_mappings import normalize_team_name
 
 
 def fetch_upcoming_fixtures(

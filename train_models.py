@@ -269,6 +269,55 @@ def train_and_save_models():
     except Exception as e:
         print(f"WARNING: Poisson evaluation failed: {e}")
 
+    # Train Dixon-Coles goal model with time-decay weights (penaltyblog)
+    try:
+        from pitch_oracle_core.goal_models import (
+            fit_dixon_coles, goals_frame_from_historical, save_goal_model,
+        )
+        from pitch_oracle_core.evaluation.baseline import proper_score_summary
+        print("\nTraining Dixon-Coles goal model with time-decay weights...")
+        dc_start = time.time()
+        raw_csv = path.join(DATA_DIR, 'combined_historical_data_with_calculations_new.csv')
+        raw_hist = pd.read_csv(raw_csv, sep='\t')
+        goals = goals_frame_from_historical(raw_hist)
+        # Chronological train/test split for baseline metrics
+        split_idx = int(len(goals) * 0.8)
+        goals_train = goals.iloc[:split_idx].copy()
+        goals_test = goals.iloc[split_idx:].copy()
+        # Fit production model on all data
+        dc_model = fit_dixon_coles(goals)
+        dc_result = save_goal_model(dc_model, goals, MODELS_DIR)
+        print(f"  Dixon-Coles fitted: {dc_result.n_teams} teams, {dc_result.n_fixtures} fixtures")
+        print(f"  Saved to {dc_result.model_path}")
+        # Baseline metrics on held-out test partition
+        dc_test_model = fit_dixon_coles(goals_train)
+        test_probs = []
+        test_outcomes = []
+        for _, row in goals_test.iterrows():
+            try:
+                g = dc_test_model.predict(row["team_home"], row["team_away"], max_goals=10)
+                test_probs.append([g.home_win, g.draw, g.away_win])
+                outcome = 0 if row["goals_home"] > row["goals_away"] else (1 if row["goals_home"] == row["goals_away"] else 2)
+                test_outcomes.append(outcome)
+            except (KeyError, ValueError):
+                continue
+        if test_probs:
+            import numpy as np
+            test_probs_arr = np.array(test_probs)
+            test_outcomes_arr = np.array(test_outcomes)
+            dc_metrics = proper_score_summary(test_outcomes_arr, test_probs_arr)
+            dc_metrics["test_fixtures"] = len(test_outcomes)
+            dc_metrics["train_fixtures"] = len(goals_train)
+            dc_metrics["xi"] = 0.0018
+            metrics_path = path.join(MODELS_DIR, 'goal_model_metrics.json')
+            with open(metrics_path, 'w', encoding='utf-8') as f:
+                json.dump(dc_metrics, f, indent=2)
+            performance['dixon_coles'] = dc_metrics
+            print(f"  Dixon-Coles test metrics: brier={dc_metrics['brier']:.4f} rps={dc_metrics['rps']:.4f} log_loss={dc_metrics['log_loss']:.4f}")
+        print(f"  Dixon-Coles trained in {time.time() - dc_start:.1f}s")
+    except Exception as e:
+        print(f"WARNING: Dixon-Coles training failed: {e}")
+
     # Train and save LSTM model
     try:
         print("\nTraining LSTM time series model...")
