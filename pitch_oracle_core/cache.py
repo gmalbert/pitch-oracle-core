@@ -31,6 +31,9 @@ DEFAULT_REQUIREMENTS = (
     CacheRequirement("model_audit", "precomputed/model-audit/model_ablation.json"),
     CacheRequirement("upcoming_fixtures", "data_files/upcoming_fixtures.csv"),
     CacheRequirement("upcoming_predictions", "data_files/upcoming_predictions.csv"),
+    CacheRequirement("dixon_coles_goal_model", "models/dixon_coles_goal_model.pkl"),
+    CacheRequirement("dixon_coles_goal_model_metadata", "models/dixon_coles_goal_model.json"),
+    CacheRequirement("goal_model_metrics", "models/goal_model_metrics.json"),
 )
 
 
