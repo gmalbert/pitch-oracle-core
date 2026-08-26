@@ -37,14 +37,19 @@ def generate(source: Path, output_dir: Path, *, as_of: str | None = None) -> dic
         by_name = {result.candidate: result for result in results}
         baseline = by_name["class_prior_baseline"].metrics
         candidates = ["no_odds", "poisson"]
-        production = next(
-            (
-                name
-                for name in candidates
-                if by_name[name].metrics["log_loss"] < baseline["log_loss"]
-                and by_name[name].metrics["brier_score"] < baseline["brier_score"]
+        eligible = [
+            name
+            for name in candidates
+            if by_name[name].metrics["log_loss"] < baseline["log_loss"]
+            and by_name[name].metrics["brier_score"] < baseline["brier_score"]
+        ]
+        production = min(
+            eligible,
+            key=lambda name: (
+                by_name[name].metrics["log_loss"],
+                by_name[name].metrics["brier_score"],
             ),
-            None,
+            default=None,
         )
         passed = production is not None
         report.update({
