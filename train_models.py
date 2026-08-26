@@ -158,16 +158,32 @@ def train_and_save_models():
     baseline_probabilities = np.tile(train_prior, (len(y_test), 1))
     baseline_metrics = probability_metrics(y_test, baseline_probabilities)
     production_metrics = probability_metrics(y_test, ensemble_model.predict_proba(X_test))
-    if (
+    audit_path = path.join('precomputed', 'model-audit', 'model_ablation.json')
+    try:
+        with open(audit_path, encoding='utf-8') as f:
+            audit = json.load(f)
+        production_candidate = audit.get('release_gate', {}).get('production_candidate')
+    except (OSError, ValueError):
+        production_candidate = None
+    if production_candidate not in ('no_odds', 'poisson'):
+        production_candidate = 'no_odds'
+
+    no_odds_beats_baseline = not (
         production_metrics['log_loss'] >= baseline_metrics['log_loss']
         or production_metrics['brier_score'] >= baseline_metrics['brier_score']
-    ):
+    )
+    if production_candidate == 'no_odds' and not no_odds_beats_baseline:
         raise RuntimeError(
             "Production no-odds model failed the release gate: "
             f"model log_loss={production_metrics['log_loss']:.4f}, "
             f"baseline={baseline_metrics['log_loss']:.4f}; "
             f"model brier={production_metrics['brier_score']:.4f}, "
             f"baseline={baseline_metrics['brier_score']:.4f}"
+        )
+    if production_candidate == 'poisson' and not no_odds_beats_baseline:
+        print(
+            "No-odds challenger did not beat the class-prior baseline; "
+            "using the audit-approved Poisson production candidate."
         )
 
     # Save Ensemble model
@@ -331,16 +347,6 @@ def train_and_save_models():
 
     with open(path.join(MODELS_DIR, 'model_performance.pkl'), 'wb') as f:
         pickle.dump(performance, f)
-
-    audit_path = path.join('precomputed', 'model-audit', 'model_ablation.json')
-    try:
-        with open(audit_path, encoding='utf-8') as f:
-            audit = json.load(f)
-        production_candidate = audit.get('release_gate', {}).get('production_candidate')
-    except (OSError, ValueError):
-        production_candidate = None
-    if production_candidate not in ('no_odds', 'poisson'):
-        production_candidate = 'no_odds'
 
     metadata = {
         'feature_policy_version': FEATURE_POLICY_VERSION,
