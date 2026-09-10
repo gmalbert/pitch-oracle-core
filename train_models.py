@@ -302,7 +302,6 @@ def train_and_save_models():
             except (KeyError, ValueError):
                 continue
         if test_probs:
-            import numpy as np
             test_probs_arr = np.array(test_probs)
             test_outcomes_arr = np.array(test_outcomes)
             dc_metrics = proper_score_summary(test_outcomes_arr, test_probs_arr)
