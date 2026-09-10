@@ -13,6 +13,7 @@ authors = [{ name = "Pitch Oracle" }]
 dependencies = [
   "numpy>=1.26",
   "pandas>=2.1",
+  "requests>=2.31",
   "penaltyblog==1.12.0",
 ]
 
