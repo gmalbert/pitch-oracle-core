@@ -381,6 +381,8 @@ def train_and_save_models():
         if model_name == 'poisson':
             # poisson entry contains detailed metrics
             print(f"poisson: home_mae={metrics['home_mae']:.3f}, away_mae={metrics['away_mae']:.3f}, outcome_acc={metrics['outcome_acc']:.3f}")
+        elif model_name == 'dixon_coles':
+            print(f"dixon_coles: log_loss={metrics['log_loss']:.3f}, brier={metrics['brier']:.3f}")
         else:
             print(f"{model_name}: Accuracy={metrics['accuracy']:.3f}, Log loss={metrics['log_loss']:.3f}")
     return performance
