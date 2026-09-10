@@ -119,19 +119,26 @@ def load_goal_model(path: str | Path) -> DixonColesGoalModel:
 def goals_frame_from_historical(df: pd.DataFrame) -> pd.DataFrame:
     """Extract the columns needed for goal-model training from the historical CSV.
 
-    The input ``df`` is the raw ``combined_historical_data.csv`` with
-    football-data column names (``HomeTeam``, ``AwayTeam``, ``FTHG``,
-    ``FTAG``, ``Date``).
+    The input may be either the football-data source schema or a consumer's
+    processed history schema. Both are accepted so the artifact contract does
+    not depend on a league-specific column-renaming convention.
     """
-    required = {"HomeTeam", "AwayTeam", "FTHG", "FTAG", "Date"}
-    missing = required.difference(df.columns)
+    aliases = {
+        "HomeTeam": ("HomeTeam",),
+        "AwayTeam": ("AwayTeam",),
+        "FTHG": ("FTHG", "FullTimeHomeGoals"),
+        "FTAG": ("FTAG", "FullTimeAwayGoals"),
+        "Date": ("Date", "MatchDate"),
+    }
+    selected = {
+        target: next((column for column in candidates if column in df.columns), None)
+        for target, candidates in aliases.items()
+    }
+    missing = [target for target, column in selected.items() if column is None]
     if missing:
         raise ValueError(f"Historical source misses: {sorted(missing)}")
-    frame = df[["HomeTeam", "AwayTeam", "FTHG", "FTAG", "Date"]].dropna().copy()
-    frame = frame.rename(columns={
-        "HomeTeam": "team_home", "AwayTeam": "team_away",
-        "FTHG": "goals_home", "FTAG": "goals_away", "Date": "date",
-    })
+    frame = df[[selected[target] for target in aliases]].dropna().copy()
+    frame.columns = ["team_home", "team_away", "goals_home", "goals_away", "date"]
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame = frame.dropna(subset=["date"]).sort_values("date", kind="stable")
     frame["goals_home"] = frame["goals_home"].astype(int)
