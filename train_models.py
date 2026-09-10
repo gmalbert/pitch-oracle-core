@@ -287,7 +287,7 @@ def train_and_save_models():
         # so prefer the raw history whenever the consumer provides it.
         raw_csv = path.join(DATA_DIR, 'combined_historical_data.csv')
         if path.exists(raw_csv):
-            raw_hist = pd.read_csv(raw_csv)
+            raw_hist = pd.read_csv(raw_csv, sep=None, engine='python')
         else:
             raw_csv = path.join(DATA_DIR, 'combined_historical_data_with_calculations_new.csv')
             raw_hist = pd.read_csv(raw_csv, sep='\t')
