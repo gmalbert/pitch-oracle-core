@@ -282,8 +282,15 @@ def train_and_save_models():
         from pitch_oracle_core.evaluation.baseline import proper_score_summary
         print("\nTraining Dixon-Coles goal model with time-decay weights...")
         dc_start = time.time()
-        raw_csv = path.join(DATA_DIR, 'combined_historical_data_with_calculations_new.csv')
-        raw_hist = pd.read_csv(raw_csv, sep='\t')
+        # Goal-model training consumes the football-data source contract
+        # (Date/FTHG/FTAG). The processed feature file renames those columns,
+        # so prefer the raw history whenever the consumer provides it.
+        raw_csv = path.join(DATA_DIR, 'combined_historical_data.csv')
+        if path.exists(raw_csv):
+            raw_hist = pd.read_csv(raw_csv)
+        else:
+            raw_csv = path.join(DATA_DIR, 'combined_historical_data_with_calculations_new.csv')
+            raw_hist = pd.read_csv(raw_csv, sep='\t')
         goals = goals_frame_from_historical(raw_hist)
         # Chronological train/test split for baseline metrics
         split_idx = int(len(goals) * 0.8)
