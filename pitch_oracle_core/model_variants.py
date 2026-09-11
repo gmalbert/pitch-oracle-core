@@ -124,6 +124,12 @@ def aic_leaderboard(
         row["aic"] = None if aic is None else float(aic)
         row["fit_status"] = "fitted"
         rows.append(row)
-    return pd.DataFrame(rows).sort_values(
+    columns = [
+        "model", "n_fixtures", "n_teams", "n_params", "log_likelihood",
+        "aic", "fit_status",
+    ]
+    if not rows:
+        return pd.DataFrame(columns=columns)
+    return pd.DataFrame(rows, columns=columns).sort_values(
         ["aic", "model"], ascending=[True, True], na_position="last"
     ).reset_index(drop=True)

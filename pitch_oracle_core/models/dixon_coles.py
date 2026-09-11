@@ -137,7 +137,13 @@ class DixonColesModel:
         )
         return self
 
-    def expected_goals(self, home_team_id: str, away_team_id: str) -> tuple[float, float]:
+    def expected_goals(
+        self,
+        home_team_id: str,
+        away_team_id: str,
+        *,
+        neutral_venue: bool = False,
+    ) -> tuple[float, float]:
         if self.fit_ is None:
             raise RuntimeError("Model is not fitted")
         index = {team_id: position for position, team_id in enumerate(self.fit_.team_ids)}
@@ -146,7 +152,7 @@ class DixonColesModel:
         home, away = index[home_team_id], index[away_team_id]
         home_rate = np.exp(
             self.fit_.intercept
-            + self.fit_.home_advantage
+            + (0.0 if neutral_venue else self.fit_.home_advantage)
             + self.fit_.attack[home]
             - self.fit_.defense[away]
         )
@@ -156,11 +162,18 @@ class DixonColesModel:
         return float(home_rate), float(away_rate)
 
     def score_grid(
-        self, home_team_id: str, away_team_id: str, max_goals: int = 12
+        self,
+        home_team_id: str,
+        away_team_id: str,
+        max_goals: int = 12,
+        *,
+        neutral_venue: bool = False,
     ) -> ProbabilityGrid:
         if self.fit_ is None:
             raise RuntimeError("Model is not fitted")
-        home_rate, away_rate = self.expected_goals(home_team_id, away_team_id)
+        home_rate, away_rate = self.expected_goals(
+            home_team_id, away_team_id, neutral_venue=neutral_venue
+        )
         matrix = np.zeros((max_goals + 1, max_goals + 1), dtype=float)
         for home_goals in range(max_goals + 1):
             for away_goals in range(max_goals + 1):
@@ -237,7 +250,9 @@ class DixonColesForecaster:
         if self.model.fit_ is not None:
             try:
                 return self.model.score_grid(
-                    fixture.home_team_id, fixture.away_team_id
+                    fixture.home_team_id,
+                    fixture.away_team_id,
+                    neutral_venue=fixture.neutral_venue,
                 )
             except (KeyError, ValueError, RuntimeError) as exc:
                 self.fallback_reason = f"{type(exc).__name__}: {exc}"

@@ -144,6 +144,15 @@ class TestRatings:
         if delta is not None:
             assert isinstance(delta, float)
 
+    def test_chronological_elo_uses_kickoff(self, sample_matches):
+        from pitch_oracle_core.ratings import compute_elo_ratings
+
+        ordered = sample_matches.copy()
+        ordered["kickoff_utc"] = pd.date_range("2024-01-01", periods=len(ordered), tz="UTC")
+        shuffled = ordered.sample(frac=1.0, random_state=11).reset_index(drop=True)
+        _, history = compute_elo_ratings(shuffled)
+        assert pd.Timestamp(history[0]["known_at"]) == pd.Timestamp("2024-01-01", tz="UTC")
+
 
 # ── P2.5/P2.6/P2.7: Betting utilities ─────────────────────────────────
 

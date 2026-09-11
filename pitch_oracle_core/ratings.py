@@ -74,6 +74,60 @@ def compute_elo_ratings(
     return elo, history
 
 
+def elo_asof_features(
+    elo_history: list[dict[str, Any]],
+    fixtures: pd.DataFrame,
+    *,
+    issue_col: str = "issue_time",
+    home_col: str = "team_home",
+    away_col: str = "team_away",
+) -> pd.DataFrame:
+    """Join pre-match Elo values using only updates known before issuance.
+
+    The returned values are deliberately based on each update's ``*_pre``
+    fields.  A fixture issued between two historical matches therefore cannot
+    observe the result of either a later match or its post-match rating.
+    """
+    if issue_col not in fixtures.columns:
+        raise ValueError(f"fixtures require {issue_col!r}")
+    if not elo_history:
+        return fixtures.assign(elo_home_pre=np.nan, elo_away_pre=np.nan)
+    history = pd.DataFrame(elo_history).copy()
+    required = {"known_at", "team_home", "team_away", "elo_home_pre", "elo_away_pre"}
+    missing = required.difference(history.columns)
+    if missing:
+        raise ValueError(f"Elo history missing columns: {sorted(missing)}")
+    history["known_at"] = pd.to_datetime(history["known_at"], utc=True, errors="raise")
+    history = history.sort_values("known_at", kind="stable")
+    rows = []
+    for _, fixture in fixtures.iterrows():
+        issued = pd.Timestamp(fixture[issue_col])
+        if issued.tzinfo is None:
+            issued = issued.tz_localize("UTC")
+        else:
+            issued = issued.tz_convert("UTC")
+        prior = history.loc[history["known_at"] < issued]
+        values: dict[str, float | str] = {
+            "elo_home_pre": np.nan,
+            "elo_away_pre": np.nan,
+        }
+        for team, key in ((str(fixture[home_col]), "elo_home_pre"),
+                          (str(fixture[away_col]), "elo_away_pre")):
+            team_rows = prior.loc[
+                (prior["team_home"].astype(str) == team)
+                | (prior["team_away"].astype(str) == team)
+            ]
+            if not team_rows.empty:
+                latest = team_rows.iloc[-1]
+                values[key] = float(
+                    latest["elo_home_post"]
+                    if str(latest["team_home"]) == team
+                    else latest["elo_away_post"]
+                )
+        rows.append(values)
+    return pd.concat([fixtures.reset_index(drop=True), pd.DataFrame(rows)], axis=1)
+
+
 def compute_massey_ratings(
     matches: pd.DataFrame,
     *,
