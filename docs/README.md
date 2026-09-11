@@ -10,6 +10,19 @@
 **Source repo:** `gmalbert/premier-league` ("Pitch Oracle," live at pitch-oracle.com)
 **Date:** July 29, 2026
 
+## Current penaltyblog review
+
+The adoption review and implementation guidance are now documented separately
+from the historical expansion plan:
+
+- [penaltyblog review and incorporation recommendation](penaltyblog-review.md)
+- [penaltyblog implementation blueprint](penaltyblog-implementation-blueprint.md)
+- [penaltyblog data and analysis opportunities](penaltyblog-data-and-analysis-opportunities.md)
+
+These documents reflect the current branch, where `penaltyblog==1.12.0` is
+already integrated. The older `docs/penaltyblog-roadmaps/` files remain useful
+for design context, but the current review should be used to prioritize work.
+
 ## Why `premier-league` is the base
 
 Of your ~20 repos, `gmalbert/premier-league` is by a wide margin the most mature European
