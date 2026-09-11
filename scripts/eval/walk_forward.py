@@ -27,7 +27,9 @@ def main():
         from pitch_oracle_core.goal_models import fit_dixon_coles
         return fit_dixon_coles(train)
 
-    result = walk_forward_evaluate(goals, factory, window=1500, horizon=50)
+    result = walk_forward_evaluate(
+        goals, factory, window=1500, horizon=50, date_col="date"
+    )
     print(f"Walk-forward: {result.n_folds} folds")
     print(f"  Mean Brier:    {result.mean_brier:.4f}")
     print(f"  Mean Log Loss: {result.mean_log_loss:.4f}")

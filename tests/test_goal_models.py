@@ -13,6 +13,7 @@ from pitch_oracle_core.goal_models import (
     save_goal_model,
     time_decay_weights,
     training_set_hash,
+    training_fingerprint,
 )
 
 
@@ -59,6 +60,12 @@ class TestTrainingSetHash:
         modified = synthetic_goals.copy()
         modified.loc[0, "goals_home"] = 99
         assert training_set_hash(synthetic_goals[cols]) != training_set_hash(modified[cols])
+
+    def test_fingerprint_changes_when_date_changes(self, synthetic_goals):
+        first = training_fingerprint(synthetic_goals, xi=DEFAULT_XI)
+        modified = synthetic_goals.copy()
+        modified.loc[0, "date"] = modified.loc[0, "date"] + pd.Timedelta(days=1)
+        assert first != training_fingerprint(modified, xi=DEFAULT_XI)
 
 
 class TestFitDixonColes:

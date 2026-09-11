@@ -43,6 +43,7 @@ class FixtureFeatures:
     home_team_id: str
     away_team_id: str
     values: Mapping[str, float | int | str | None]
+    neutral_venue: bool = False
 
     def __post_init__(self) -> None:
         if self.kickoff_utc.tzinfo is None:

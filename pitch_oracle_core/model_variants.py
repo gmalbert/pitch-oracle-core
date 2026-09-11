@@ -99,17 +99,31 @@ def aic_leaderboard(
     *,
     xi: float = DEFAULT_XI,
 ) -> pd.DataFrame:
-    """Build an AIC leaderboard across all model variants.
+    """Build in-sample fit diagnostics across all model variants.
 
-    Note: penaltyblog 1.12.0 does not expose .aic on fitted models, so we
-    approximate AIC = 2k - 2ln(L) from the log-likelihood and parameter count
-    where available, or report fit status only.
+    AIC is reported only when the fitted upstream model exposes both a
+    log-likelihood and parameter count. Out-of-time scores remain the promotion
+    authority.
     """
     results = fit_all_variants(frame, xi=xi)
     rows = []
     for name, result in results.items():
         row = {"model": name, "n_fixtures": result.n_fixtures, "n_teams": result.n_teams}
         params = result.model.get_params()
-        row["n_params"] = len(params) if isinstance(params, dict) else 0
+        n_params = getattr(result.model, "n_params", None)
+        if n_params is None:
+            n_params = len(params) if isinstance(params, dict) else None
+        log_likelihood = getattr(result.model, "loglikelihood", None)
+        aic = getattr(result.model, "aic", None)
+        if aic is None and log_likelihood is not None and n_params is not None:
+            aic = 2.0 * float(n_params) - 2.0 * float(log_likelihood)
+        row["n_params"] = None if n_params is None else int(n_params)
+        row["log_likelihood"] = (
+            None if log_likelihood is None else float(log_likelihood)
+        )
+        row["aic"] = None if aic is None else float(aic)
+        row["fit_status"] = "fitted"
         rows.append(row)
-    return pd.DataFrame(rows).sort_values("n_params", ascending=False)
+    return pd.DataFrame(rows).sort_values(
+        ["aic", "model"], ascending=[True, True], na_position="last"
+    ).reset_index(drop=True)

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import platform
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +18,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import penaltyblog
 from penaltyblog.models import DixonColesGoalModel, dixon_coles_weights
 
 DEFAULT_XI = 0.0018
@@ -38,6 +41,40 @@ def training_set_hash(frame: pd.DataFrame) -> str:
     """Return a stable SHA-256 hex digest of a training-set frame."""
     return hashlib.sha256(
         pd.util.hash_pandas_object(frame).values.tobytes()
+    ).hexdigest()
+
+
+def training_fingerprint(
+    frame: pd.DataFrame,
+    *,
+    xi: float,
+    minimizer_options: dict[str, Any] | None = None,
+    feature_policy_version: str = "unknown",
+) -> str:
+    """Hash data and all settings that can change a recency-weighted fit."""
+    date_col = "datetime" if "datetime" in frame.columns else "date"
+    if date_col not in frame.columns:
+        raise ValueError("training frame requires datetime or date")
+    required = ["team_home", "team_away", "goals_home", "goals_away", date_col]
+    missing = [column for column in required if column not in frame.columns]
+    if missing:
+        raise ValueError(f"training frame misses: {missing}")
+    canonical = frame[required].copy()
+    canonical[date_col] = pd.to_datetime(canonical[date_col], utc=True, errors="raise")
+    canonical["recency_weight"] = time_decay_weights(canonical[date_col], xi=xi)
+    payload = {
+        "data_hash": hashlib.sha256(
+            pd.util.hash_pandas_object(canonical, index=False).values.tobytes()
+        ).hexdigest(),
+        "xi": float(xi),
+        "minimizer_options": minimizer_options or {"maxiter": 5000, "ftol": 1e-9},
+        "feature_policy_version": feature_policy_version,
+        "penaltyblog_version": penaltyblog.__version__,
+        "python_version": sys.version.split()[0],
+        "platform": platform.platform(),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
 
 
@@ -81,6 +118,8 @@ def save_goal_model(
     frame: pd.DataFrame,
     models_dir: str | Path,
     xi: float = DEFAULT_XI,
+    minimizer_options: dict[str, Any] | None = None,
+    feature_policy_version: str = "unknown",
 ) -> GoalModelTrainingResult:
     """Persist a fitted goal model and its metadata sidecar."""
     models_dir = Path(models_dir)
@@ -88,14 +127,27 @@ def save_goal_model(
     model_path = models_dir / "dixon_coles_goal_model.pkl"
     metadata_path = models_dir / "dixon_coles_goal_model.json"
     model.save(str(model_path))
-    hash_value = training_set_hash(
-        frame[["goals_home", "goals_away", "team_home", "team_away"]]
+    hash_value = training_fingerprint(
+        frame,
+        xi=xi,
+        minimizer_options=minimizer_options,
+        feature_policy_version=feature_policy_version,
     )
+    date_col = "datetime" if "datetime" in frame.columns else "date"
+    dates = pd.to_datetime(frame[date_col], utc=True, errors="raise")
+    effective_options = minimizer_options or {"maxiter": 5000, "ftol": 1e-9}
     metadata = {
         "model_type": "DixonColesGoalModel",
         "fitted_at": datetime.now(timezone.utc).isoformat(),
         "xi": xi,
         "training_set_hash": hash_value,
+        "penaltyblog_version": penaltyblog.__version__,
+        "python_version": sys.version.split()[0],
+        "platform": platform.platform(),
+        "feature_policy_version": feature_policy_version,
+        "minimizer_options": effective_options,
+        "training_min_event_time": dates.min().isoformat(),
+        "training_max_event_time": dates.max().isoformat(),
         "n_fixtures": len(frame),
         "n_teams": len(set(frame["team_home"]).union(frame["team_away"])),
         "params": {k: round(float(v), 6) for k, v in model.get_params().items()},

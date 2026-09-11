@@ -9,6 +9,7 @@ from .protocol import FixtureFeatures, ForecastTrack, ModelSpec, ScoreModel
 
 _LAZY_MODELS = {
     "DixonColesForecaster": (".dixon_coles", "DixonColesForecaster"),
+    "PenaltyBlogDixonColes": (".penaltyblog_adapter", "PenaltyBlogDixonColes"),
     "RankCovariateGoalsModel": (".rank_covariate", "RankCovariateGoalsModel"),
 }
 
@@ -23,6 +24,6 @@ def __getattr__(name: str):
     return value
 
 __all__ = [
-    "DixonColesForecaster", "EloModel", "FixtureFeatures", "ForecastTrack", "ModelSpec", "ScoreModel",
+    "DixonColesForecaster", "EloModel", "FixtureFeatures", "ForecastTrack", "ModelSpec", "PenaltyBlogDixonColes", "ScoreModel",
     "RankCovariateGoalsModel", "independent_poisson_grid",
 ]

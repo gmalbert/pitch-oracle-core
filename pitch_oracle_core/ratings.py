@@ -14,6 +14,16 @@ import pandas as pd
 from penaltyblog.ratings import Colley, Elo, Massey, PiRatingSystem
 
 
+def _chronological_matches(matches: pd.DataFrame) -> pd.DataFrame:
+    """Return a stable chronological frame when a date column is available."""
+    for column in ("kickoff_utc", "datetime", "date", "match_date"):
+        if column in matches.columns:
+            frame = matches.copy()
+            frame[column] = pd.to_datetime(frame[column], utc=True, errors="raise")
+            return frame.sort_values(column, kind="stable").reset_index(drop=True)
+    return matches.reset_index(drop=True)
+
+
 @dataclass(frozen=True)
 class RatingSnapshot:
     """A point-in-time set of ratings from all four systems."""
@@ -43,6 +53,7 @@ def compute_elo_ratings(
     Returns the fitted Elo object and a list of per-match update records
     (for building Elo history time series).
     """
+    matches = _chronological_matches(matches)
     elo = Elo(k=k, home_field_advantage=home_field_advantage)
     history: list[dict[str, Any]] = []
     for _, row in matches.iterrows():
@@ -58,6 +69,7 @@ def compute_elo_ratings(
             "elo_home_pre": pre_home, "elo_away_pre": pre_away,
             "elo_home_post": elo.ratings[home],
             "elo_away_post": elo.ratings[away],
+            "known_at": row.get("kickoff_utc", row.get("datetime", row.get("date"))),
         })
     return elo, history
 
@@ -148,7 +160,11 @@ def build_combined_rankings(
     colley_df = compute_colley_ratings(matches, **kwargs)
     pi, _ = compute_pi_ratings(matches, **kwargs)
 
-    teams = sorted(set(matches[kwargs.get("home_col", "team_home")]))
+    home_col = kwargs.get("home_col", "team_home")
+    away_col = kwargs.get("away_col", "team_away")
+    teams = sorted(
+        set(matches[home_col].astype(str)).union(matches[away_col].astype(str))
+    )
     rows = []
     for team in teams:
         massey_val = massey_df.loc[massey_df["team"] == team, "rating"]

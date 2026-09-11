@@ -13,7 +13,11 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from penaltyblog.models import BayesianGoalModel, HierarchicalBayesianGoalModel
+from penaltyblog.models import (
+    BayesianGoalModel,
+    HierarchicalBayesianGoalModel,
+    create_dixon_coles_grid,
+)
 
 from .goal_models import DEFAULT_XI, time_decay_weights
 
@@ -78,6 +82,53 @@ def bayesian_predict_grid(
     }
 
 
+def posterior_probability_draws(
+    model: Any,
+    home_team: str,
+    away_team: str,
+    *,
+    max_goals: int = 15,
+    n_samples: int = 100,
+    neutral_venue: bool = False,
+) -> np.ndarray:
+    """Return posterior draws of ``(home, draw, away)`` probabilities.
+
+    ``BayesianGoalModel`` stores the posterior trace and exposes the team index
+    map. The calculation mirrors its Dixon-Coles parameterization while using
+    the public grid constructor for market aggregation. This function is kept
+    in a narrow adapter so a future upstream parameterization change is caught
+    by one contract test.
+    """
+    if n_samples <= 0:
+        raise ValueError("n_samples must be positive")
+    trace = np.asarray(getattr(model, "trace", None), dtype=float)
+    team_to_idx = getattr(model, "team_to_idx", None)
+    n_teams = int(getattr(model, "n_teams", 0))
+    if trace.ndim != 2 or team_to_idx is None or n_teams <= 0:
+        raise ValueError("fitted Bayesian model does not expose a posterior trace")
+    if home_team not in team_to_idx or away_team not in team_to_idx:
+        raise KeyError(f"Unknown team: {home_team!r} or {away_team!r}")
+    home_index = int(team_to_idx[home_team])
+    away_index = int(team_to_idx[away_team])
+    sample_indices = np.linspace(0, len(trace) - 1, min(n_samples, len(trace)), dtype=int)
+    rows = []
+    for index in sample_indices:
+        params = trace[index]
+        home_attack = params[home_index]
+        away_attack = params[away_index]
+        home_defense = params[n_teams + home_index]
+        away_defense = params[n_teams + away_index]
+        home_advantage = 0.0 if neutral_venue else params[-2]
+        rho = params[-1]
+        home_lambda = float(np.exp(home_attack + away_defense + home_advantage))
+        away_lambda = float(np.exp(away_attack + home_defense))
+        grid = create_dixon_coles_grid(
+            home_lambda, away_lambda, rho=float(rho), max_goals=max_goals
+        )
+        rows.append([grid.home_win, grid.draw, grid.away_win])
+    return np.asarray(rows, dtype=float)
+
+
 def uncertainty_features(
     model: Any,
     fixtures: pd.DataFrame,
@@ -95,16 +146,21 @@ def uncertainty_features(
         home, away = str(row[home_col]), str(row[away_col])
         try:
             grid = model.predict(home, away, max_goals=10)
-            # For Bayesian models, the grid already represents the posterior mean
-            # The CI width would come from trace samples — approximate with
-            # a simple heuristic based on the model's inherent uncertainty
+            draws = posterior_probability_draws(
+                model, home, away, max_goals=10, n_samples=n_samples
+            )
+            lower, median, upper = np.quantile(draws, [0.05, 0.50, 0.95], axis=0)
             rows.append({
                 "team_home": home,
                 "team_away": away,
                 "bayes_p_home_mean": grid.home_win,
                 "bayes_p_draw_mean": grid.draw,
                 "bayes_p_away_mean": grid.away_win,
-                "bayes_p_home_ci_width": abs(grid.home_win - 0.5) * 0.2,  # heuristic
+                "bayes_p_home_std": float(draws[:, 0].std(ddof=0)),
+                "bayes_p_home_p05": float(lower[0]),
+                "bayes_p_home_p50": float(median[0]),
+                "bayes_p_home_p95": float(upper[0]),
+                "bayes_p_home_ci_width": float(upper[0] - lower[0]),
             })
         except (KeyError, ValueError):
             continue

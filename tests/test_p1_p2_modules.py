@@ -63,6 +63,31 @@ class TestWalkForward:
         assert result.mean_rps > 0
         wf_df = result.to_dataframe()
         assert len(wf_df) == result.n_folds
+        assert (wf_df["n_scored"] == wf_df["n_test"]).all()
+
+    def test_walk_forward_accepts_date_column_and_includes_final_fold(self):
+        from pitch_oracle_core.evaluation.walk_forward import walk_forward_evaluate
+        from penaltyblog.models import PoissonGoalsModel
+        n = 180
+        teams = np.array(["A", "B", "C", "D"])
+        df = pd.DataFrame({
+            "team_home": np.resize(teams, n),
+            "team_away": np.resize(teams[::-1], n),
+            "goals_home": np.ones(n, dtype=int),
+            "goals_away": np.zeros(n, dtype=int),
+            "date": pd.date_range("2020-01-01", periods=n, freq="D"),
+        })
+
+        def factory(train):
+            model = PoissonGoalsModel(
+                train.goals_home.to_numpy(), train.goals_away.to_numpy(),
+                train.team_home.to_numpy(), train.team_away.to_numpy(),
+            )
+            model.fit()
+            return model
+
+        result = walk_forward_evaluate(df, factory, window=100, horizon=40)
+        assert result.n_folds == 2
 
 
 # ── P1.5/P1.6: Rating systems ─────────────────────────────────────────

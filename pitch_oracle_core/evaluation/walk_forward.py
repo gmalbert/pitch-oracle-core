@@ -24,9 +24,12 @@ class WalkForwardFold:
     test_end: int
     n_train: int
     n_test: int
+    n_scored: int
+    n_skipped: int
     brier: float
     log_loss: float
     rps: float
+    skip_reasons: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,9 @@ class WalkForwardResult:
                 "test_end": f.test_end,
                 "n_train": f.n_train,
                 "n_test": f.n_test,
+                "n_scored": f.n_scored,
+                "n_skipped": f.n_skipped,
+                "skip_reasons": list(f.skip_reasons),
                 "brier": f.brier,
                 "log_loss": f.log_loss,
                 "rps": f.rps,
@@ -88,28 +94,45 @@ def walk_forward_evaluate(
     model with a ``predict(home, away, max_goals)`` method returning a
     ``FootballProbabilityGrid``.
     """
-    df = matches.sort_values(date_col, kind="stable").reset_index(drop=True)
+    resolved_date_col = next(
+        (candidate for candidate in (date_col, "datetime", "date", "kickoff_utc")
+         if candidate in matches.columns),
+        None,
+    )
+    if resolved_date_col is None:
+        raise ValueError("matches require datetime, date, or kickoff_utc")
+    df = matches.copy()
+    df["_evaluation_date"] = pd.to_datetime(
+        df[resolved_date_col], utc=True, errors="raise"
+    )
+    df = df.sort_values("_evaluation_date", kind="stable").reset_index(drop=True)
     folds: list[WalkForwardFold] = []
     fold_idx = 0
 
-    for start in range(0, len(df) - window - horizon, horizon):
+    if window <= 0 or horizon <= 0:
+        raise ValueError("window and horizon must be positive")
+    for start in range(0, len(df) - window - horizon + 1, horizon):
         train = df.iloc[start:start + window]
         test = df.iloc[start + window:start + window + horizon]
         model = model_factory(train)
 
         probs = []
         outcomes = []
+        skip_reasons: list[str] = []
         for _, row in test.iterrows():
             try:
                 grid = model.predict(row[home_col], row[away_col], max_goals=10)
                 probs.append([grid.home_win, grid.draw, grid.away_win])
                 gh, ga = int(row[goals_home_col]), int(row[goals_away_col])
                 outcomes.append(0 if gh > ga else (1 if gh == ga else 2))
-            except (KeyError, ValueError):
+            except (KeyError, ValueError) as exc:
+                skip_reasons.append(f"{type(exc).__name__}: {exc}")
                 continue
 
         if not probs:
-            continue
+            raise ValueError(
+                f"walk-forward fold {fold_idx} scored zero fixtures: {skip_reasons[:3]}"
+            )
 
         p = np.array(probs)
         y = np.array(outcomes)
@@ -121,9 +144,12 @@ def walk_forward_evaluate(
             test_end=start + window + horizon,
             n_train=len(train),
             n_test=len(test),
+            n_scored=len(probs),
+            n_skipped=len(test) - len(probs),
             brier=float(multiclass_brier_score(p, y)),
             log_loss=float(ignorance_score(p, y)),
             rps=float(rps_average(p, y)),
+            skip_reasons=tuple(sorted(set(skip_reasons))),
         ))
         fold_idx += 1
 
