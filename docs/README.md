@@ -23,6 +23,10 @@ These documents reflect the current branch, where `penaltyblog==1.12.0` is
 already integrated. The older `docs/penaltyblog-roadmaps/` files remain useful
 for design context, but the current review should be used to prioritize work.
 
+The reusable browser release gate is `scripts/playwright_consumer_smoke.cjs`.
+It expects a running Streamlit consumer URL and fails on page errors, browser
+console errors, or failed requests.
+
 ## Why `premier-league` is the base
 
 Of your ~20 repos, `gmalbert/premier-league` is by a wide margin the most mature European
