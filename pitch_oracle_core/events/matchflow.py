@@ -6,10 +6,58 @@ Replaces eager ``pd.read_json`` over full archives with penaltyblog's
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 import pandas as pd
-from penaltyblog.matchflow import Flow, where_equals, where_gt
+from penaltyblog.matchflow import Flow, where_equals, where_in
+
+
+def _records(path: Path) -> list[dict]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    return [payload] if isinstance(payload, dict) else []
+
+
+def statsbomb_match_catalog(data_dir: str | Path) -> pd.DataFrame:
+    """Read StatsBomb match metadata needed to scope event files safely."""
+    rows: list[dict] = []
+    for path in sorted((Path(data_dir) / "matches").glob("*.json")):
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        for match in _records(path):
+            competition = match.get("competition", {}) or {}
+            season = match.get("season", {}) or {}
+            home = match.get("home_team", {}) or {}
+            away = match.get("away_team", {}) or {}
+            rows.append({
+                "match_id": match.get("match_id"),
+                "competition_id": competition.get("competition_id"),
+                "competition_name": competition.get("competition_name"),
+                "season_id": season.get("season_id"),
+                "season_name": season.get("season_name"),
+                "match_date": match.get("match_date"),
+                "kick_off": match.get("kick_off"),
+                "home_team": home.get("home_team_name"),
+                "away_team": away.get("away_team_name"),
+                "metadata_file": str(path),
+                "metadata_sha256": digest,
+            })
+    return pd.DataFrame(rows)
+
+
+def statsbomb_source_manifest(data_dir: str | Path) -> pd.DataFrame:
+    """Return immutable file metadata for event and match source snapshots."""
+    root = Path(data_dir)
+    rows = []
+    for path in sorted(root.glob("events/*.json")) + sorted(root.glob("matches/*.json")):
+        rows.append({
+            "path": str(path.relative_to(root)).replace("\\", "/"),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "bytes": path.stat().st_size,
+        })
+    return pd.DataFrame(rows, columns=["path", "sha256", "bytes"])
 
 
 def statsbomb_events(
@@ -24,9 +72,21 @@ def statsbomb_events(
     pattern = str(Path(data_dir) / "events" / "*.json")
     flow = Flow.from_glob(pattern)
     if competition_id is not None:
-        flow = flow.filter(where_equals("competition_id", competition_id))
+        catalog = statsbomb_match_catalog(data_dir)
+        match_ids = catalog.loc[
+            catalog["competition_id"] == competition_id, "match_id"
+        ].dropna().tolist()
+        if not match_ids:
+            raise ValueError(f"no StatsBomb matches for competition_id={competition_id}")
+        flow = flow.filter(where_in("match_id", match_ids))
     if season_id is not None:
-        flow = flow.filter(where_equals("season_id", season_id))
+        catalog = statsbomb_match_catalog(data_dir)
+        match_ids = catalog.loc[
+            catalog["season_id"] == season_id, "match_id"
+        ].dropna().tolist()
+        if not match_ids:
+            raise ValueError(f"no StatsBomb matches for season_id={season_id}")
+        flow = flow.filter(where_in("match_id", match_ids))
     return flow
 
 

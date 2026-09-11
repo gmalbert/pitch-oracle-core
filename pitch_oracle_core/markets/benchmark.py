@@ -65,6 +65,7 @@ class MarketImpliedGoals:
     source_markets: tuple[str, ...]
     devig_method: str
     solver_error: float
+    implied_rho: float | None = None
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,39 @@ def infer_market_implied_goals(
     if expected_goal_difference is not None and not np.isfinite(expected_goal_difference):
         raise ValueError("expected goal difference must be finite")
 
+    # Use penaltyblog's maintained optimizer for the standard 1X2 and
+    # 1X2-plus-total-goals cases. The explicit-difference case below remains
+    # a constrained fallback because the upstream helper does not accept that
+    # additional target.
+    if expected_goal_difference is None:
+        from penaltyblog.models import goal_expectancy, goal_expectancy_extended
+
+        if over_2_5 is None:
+            result = goal_expectancy(
+                float(target[0]), float(target[1]), float(target[2]),
+                remove_overround=False,
+            )
+        else:
+            result = goal_expectancy_extended(
+                float(target[0]), float(target[1]), float(target[2]),
+                float(over_2_5), float(1.0 - over_2_5),
+                remove_overround=False,
+            )
+        if not result.get("success", False):
+            raise RuntimeError("penaltyblog could not invert market probabilities")
+        return MarketImpliedGoals(
+            fixture_id=fixture_id,
+            issued_at=issued_at,
+            expected_home=float(result["home_exp"]),
+            expected_away=float(result["away_exp"]),
+            source_markets=source_markets,
+            devig_method=devig_method,
+            solver_error=float(result["error"] ** 0.5),
+            implied_rho=(
+                None if "implied_rho" not in result else float(result["implied_rho"])
+            ),
+        )
+
     def residual(home_rate: float, away_rate: float) -> float:
         grid = independent_poisson_grid(home_rate, away_rate)
         matrix = grid.normalized_mass()
@@ -134,7 +168,7 @@ def infer_market_implied_goals(
     error, home_rate, away_rate = best
     return MarketImpliedGoals(
         fixture_id, issued_at, home_rate, away_rate, source_markets,
-        devig_method, float(np.sqrt(error)),
+        devig_method, float(np.sqrt(error)), None,
     )
 
 
