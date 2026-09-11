@@ -3,6 +3,7 @@ import json
 from pitch_oracle_core.events.matchflow import (
     statsbomb_events,
     statsbomb_match_catalog,
+    statsbomb_snapshot_hash,
     statsbomb_source_manifest,
 )
 
@@ -29,3 +30,4 @@ def test_statsbomb_metadata_scopes_event_files(tmp_path):
     assert len(events) == 2
     manifest = statsbomb_source_manifest(tmp_path)
     assert set(manifest["path"]) == {"events/42.json", "matches/1.json"}
+    assert len(statsbomb_snapshot_hash(tmp_path)) == 64

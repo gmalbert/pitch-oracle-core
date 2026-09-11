@@ -60,6 +60,13 @@ def statsbomb_source_manifest(data_dir: str | Path) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["path", "sha256", "bytes"])
 
 
+def statsbomb_snapshot_hash(data_dir: str | Path) -> str:
+    """Hash the ordered source manifest for reproducible event artifacts."""
+    manifest = statsbomb_source_manifest(data_dir)
+    payload = manifest.to_json(orient="records", date_format="iso")
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def statsbomb_events(
     data_dir: str | Path,
     competition_id: int | None = None,
