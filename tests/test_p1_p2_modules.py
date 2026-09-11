@@ -30,6 +30,7 @@ class TestMarketGrid:
         row = market_grid_from_lambdas(1.5, 1.2, rho=-0.05)
         assert 0 < row["home_win"] < 1
         assert abs(row["home_win"] + row["draw"] + row["away_win"] - 1.0) < 1e-6
+        assert "score_grid_tail_mass" in row
 
 
 # ── P1.4: Walk-forward evaluation ──────────────────────────────────────

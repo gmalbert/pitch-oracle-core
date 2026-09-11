@@ -7,7 +7,11 @@ consumer can use the same market contract, regardless of its xG data provider.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import exp, factorial, isfinite
+from math import isfinite
+
+import numpy as np
+
+from .models.independent_poisson import independent_poisson_grid
 
 
 @dataclass(frozen=True)
@@ -54,18 +58,6 @@ def _validate_expected_goals(home_expected_goals: float, away_expected_goals: fl
         raise ValueError("expected goals cannot be negative")
 
 
-def _poisson_pmf(rate: float, goals: int) -> float:
-    return exp(-rate) * rate**goals / factorial(goals)
-
-
-def _over_under(total_rate: float, line: float) -> tuple[float, float]:
-    """Return (over, under) for standard half-goal totals."""
-    if line < 0 or line % 1 != 0.5:
-        raise ValueError("goal lines must be non-negative half-goal values, e.g. 2.5")
-    under = sum(_poisson_pmf(total_rate, goals) for goals in range(int(line) + 1))
-    return 1.0 - under, under
-
-
 def calculate_goal_markets(
     home_expected_goals: float,
     away_expected_goals: float,
@@ -83,27 +75,31 @@ def calculate_goal_markets(
     if max_goals < 0:
         raise ValueError("max_goals must be non-negative")
 
-    total_rate = home_expected_goals + away_expected_goals
-    over_under = {line: _over_under(total_rate, line) for line in lines}
-
-    btts_no = exp(-home_expected_goals) + exp(-away_expected_goals) - exp(-total_rate)
-    btts_yes = 1.0 - btts_no
-
-    best_score = (0, 0)
-    best_probability = -1.0
-    for home_goals in range(max_goals + 1):
-        home_probability = _poisson_pmf(home_expected_goals, home_goals)
-        for away_goals in range(max_goals + 1):
-            probability = home_probability * _poisson_pmf(away_expected_goals, away_goals)
-            if probability > best_probability:
-                best_score = (home_goals, away_goals)
-                best_probability = probability
+    grid = independent_poisson_grid(
+        home_expected_goals,
+        away_expected_goals,
+        initial_max_goals=max(8, max_goals),
+    )
+    matrix = grid.normalized_mass()
+    home_goals = np.arange(matrix.shape[0])[:, None]
+    away_goals = np.arange(matrix.shape[1])[None, :]
+    total_goals = home_goals + away_goals
+    over_under = {}
+    for line in lines:
+        if line < 0 or line % 1 != 0.5:
+            raise ValueError("goal lines must be non-negative half-goal values, e.g. 2.5")
+        under = float(matrix[total_goals < line].sum())
+        over_under[line] = (float(matrix[total_goals > line].sum()), under)
+    btts_yes = float(matrix[1:, 1:].sum())
+    best_score = tuple(
+        int(value) for value in np.unravel_index(int(matrix.argmax()), matrix.shape)
+    )
 
     return GoalMarketProbabilities(
         home_expected_goals=home_expected_goals,
         away_expected_goals=away_expected_goals,
         over_under=over_under,
         btts_yes=btts_yes,
-        btts_no=btts_no,
+        btts_no=1.0 - btts_yes,
         most_likely_score=best_score,
     )
