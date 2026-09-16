@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from time import sleep
 from zoneinfo import ZoneInfo
 import os
 import requests
@@ -23,20 +24,48 @@ def _scoreboard_dates(now: datetime, days_ahead: int) -> list[str]:
     ]
 
 
+def _scoreboard_events(
+    config: LeagueConfig, now: datetime, days_ahead: int,
+    fallback_delay_seconds: float,
+) -> list[dict]:
+    fixture_dates = _scoreboard_dates(now, days_ahead)
+    base_url = (
+        "https://site.api.espn.com/apis/site/v2/sports/soccer/"
+        f"{config.espn_slug}/scoreboard"
+    )
+    date_range = fixture_dates[0]
+    if len(fixture_dates) > 1:
+        date_range = f"{fixture_dates[0]}-{fixture_dates[-1]}"
+    try:
+        response = requests.get(
+            base_url, params={"limit": 1000, "dates": date_range}, timeout=15
+        )
+        response.raise_for_status()
+        return response.json().get("events", [])
+    except requests.HTTPError as exc:
+        if getattr(exc.response, "status_code", None) != 400 or len(fixture_dates) == 1:
+            raise
+    events = []
+    for offset, fixture_date in enumerate(fixture_dates):
+        if offset and fallback_delay_seconds:
+            sleep(fallback_delay_seconds)
+        response = requests.get(
+            base_url, params={"dates": fixture_date}, timeout=15
+        )
+        response.raise_for_status()
+        events.extend(response.json().get("events", []))
+    return events
+
+
 def fetch_upcoming_fixtures(
     league: LeagueConfig | str = "epl", days_ahead: int = 60,
-    output_dir: str | Path | None = None,
+    output_dir: str | Path | None = None, fallback_delay_seconds: float = 1.0,
 ) -> pd.DataFrame:
     config = get_league_config(league) if isinstance(league, str) else league
     if not config.espn_slug:
         raise ValueError(f"No ESPN slug configured for {config.key}")
     now = datetime.now(timezone.utc)
-    events = []
-    for fixture_date in _scoreboard_dates(now, days_ahead):
-        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config.espn_slug}/scoreboard?dates={fixture_date}"
-        response = requests.get(url, timeout=15)
-        response.raise_for_status()
-        events.extend(response.json().get("events", []))
+    events = _scoreboard_events(config, now, days_ahead, fallback_delay_seconds)
     rows = []
     seen_event_ids = set()
     for event in events:

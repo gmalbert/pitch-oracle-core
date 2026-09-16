@@ -1099,26 +1099,90 @@ def test_fixture_ingestion_preserves_utc_and_rejects_missing_provider_ids(
         def json(self):
             return payload
 
-    requested_urls = []
+    requested_params = []
 
     def get(url, **kwargs):
-        requested_urls.append(url)
+        requested_params.append(kwargs["params"])
         return Response()
 
     monkeypatch.setattr(fixture_fetcher.requests, "get", get)
     result = fixture_fetcher.fetch_upcoming_fixtures(
         "belgium", days_ahead=8, output_dir=tmp_path
     )
-    fixture_dates = [
-        pd.to_datetime(url.rsplit("=", 1)[1]) for url in requested_urls
-    ]
-    assert len(fixture_dates) == 9
-    assert all(
-        current == previous + pd.Timedelta(days=1)
-        for previous, current in zip(fixture_dates, fixture_dates[1:])
-    )
+    assert len(requested_params) == 1
+    assert requested_params[0]["limit"] == 1000
+    range_start, range_end = requested_params[0]["dates"].split("-")
+    assert pd.to_datetime(range_end) == pd.to_datetime(range_start) + pd.Timedelta(days=8)
     assert result.fixture_id.tolist() == ["belgium:espn:espn-1"]
     assert result.provider_event_id.tolist() == ["espn-1"]
     assert result.edition_id.tolist() == ["bel.1:2026-27"]
     assert pd.Timestamp(result.kickoff_utc.iloc[0]).tz_convert("UTC").hour == 18
     assert result.Time.tolist() == ["20:00"]
+
+
+def test_fixture_ingestion_falls_back_to_paced_single_dates_on_range_rejection(
+    tmp_path, monkeypatch
+):
+    import fetch_upcoming_fixtures as fixture_fetcher
+
+    class Response:
+        def __init__(self, status_code=200):
+            self.status_code = status_code
+
+        def raise_for_status(self):
+            if self.status_code == 400:
+                raise fixture_fetcher.requests.HTTPError(response=self)
+
+        def json(self):
+            return {"events": []}
+
+    requested_params = []
+    delays = []
+
+    def get(url, **kwargs):
+        requested_params.append(kwargs["params"])
+        return Response(400 if "-" in kwargs["params"]["dates"] else 200)
+
+    monkeypatch.setattr(fixture_fetcher.requests, "get", get)
+    monkeypatch.setattr(fixture_fetcher, "sleep", delays.append)
+    fixture_fetcher.fetch_upcoming_fixtures(
+        "belgium", days_ahead=2, output_dir=tmp_path,
+        fallback_delay_seconds=0.5,
+    )
+
+    assert len(requested_params) == 4
+    assert requested_params[0]["limit"] == 1000
+    fixture_dates = [
+        pd.to_datetime(params["dates"]) for params in requested_params[1:]
+    ]
+    assert all(
+        current == previous + pd.Timedelta(days=1)
+        for previous, current in zip(fixture_dates, fixture_dates[1:])
+    )
+    assert delays == [0.5, 0.5]
+
+
+def test_fixture_ingestion_does_not_amplify_rate_limit_failures(
+    tmp_path, monkeypatch
+):
+    import fetch_upcoming_fixtures as fixture_fetcher
+
+    class Response:
+        status_code = 429
+
+        def raise_for_status(self):
+            raise fixture_fetcher.requests.HTTPError(response=self)
+
+    calls = []
+
+    def get(url, **kwargs):
+        calls.append(kwargs["params"])
+        return Response()
+
+    monkeypatch.setattr(fixture_fetcher.requests, "get", get)
+    with pytest.raises(fixture_fetcher.requests.HTTPError):
+        fixture_fetcher.fetch_upcoming_fixtures(
+            "belgium", days_ahead=60, output_dir=tmp_path
+        )
+
+    assert len(calls) == 1
