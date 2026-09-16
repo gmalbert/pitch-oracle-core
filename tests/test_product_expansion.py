@@ -1099,10 +1099,24 @@ def test_fixture_ingestion_preserves_utc_and_rejects_missing_provider_ids(
         def json(self):
             return payload
 
-    monkeypatch.setattr(fixture_fetcher.requests, "get", lambda *args, **kwargs: Response())
+    requested_urls = []
+
+    def get(url, **kwargs):
+        requested_urls.append(url)
+        return Response()
+
+    monkeypatch.setattr(fixture_fetcher.requests, "get", get)
     result = fixture_fetcher.fetch_upcoming_fixtures(
-        "belgium", output_dir=tmp_path
+        "belgium", days_ahead=8, output_dir=tmp_path
     )
+    date_ranges = [url.rsplit("=", 1)[1] for url in requested_urls]
+    starts_and_ends = [
+        tuple(pd.to_datetime(value) for value in date_range.split("-"))
+        for date_range in date_ranges
+    ]
+    assert len(starts_and_ends) == 2
+    assert all((end - start).days <= 6 for start, end in starts_and_ends)
+    assert starts_and_ends[1][0] == starts_and_ends[0][1] + pd.Timedelta(days=1)
     assert result.fixture_id.tolist() == ["belgium:espn:espn-1"]
     assert result.provider_event_id.tolist() == ["espn-1"]
     assert result.edition_id.tolist() == ["bel.1:2026-27"]
