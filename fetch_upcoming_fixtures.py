@@ -14,6 +14,22 @@ from pitch_oracle_core.domain.entities import normalized_name
 from pitch_oracle_core.team_mappings import normalize_team_name
 
 
+ESPN_SCOREBOARD_WINDOW_DAYS = 7
+
+
+def _scoreboard_date_ranges(now: datetime, days_ahead: int) -> list[str]:
+    if days_ahead < 0:
+        raise ValueError("days_ahead must be non-negative")
+    ranges = []
+    start = now
+    horizon = now + timedelta(days=days_ahead)
+    while start <= horizon:
+        end = min(start + timedelta(days=ESPN_SCOREBOARD_WINDOW_DAYS - 1), horizon)
+        ranges.append(f"{start:%Y%m%d}-{end:%Y%m%d}")
+        start = end + timedelta(days=1)
+    return ranges
+
+
 def fetch_upcoming_fixtures(
     league: LeagueConfig | str = "epl", days_ahead: int = 60,
     output_dir: str | Path | None = None,
@@ -22,15 +38,19 @@ def fetch_upcoming_fixtures(
     if not config.espn_slug:
         raise ValueError(f"No ESPN slug configured for {config.key}")
     now = datetime.now(timezone.utc)
-    date_range = f"{now:%Y%m%d}-{(now + timedelta(days=days_ahead)):%Y%m%d}"
-    url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config.espn_slug}/scoreboard?dates={date_range}"
-    response = requests.get(url, timeout=15)
-    response.raise_for_status()
+    events = []
+    for date_range in _scoreboard_date_ranges(now, days_ahead):
+        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config.espn_slug}/scoreboard?dates={date_range}"
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
+        events.extend(response.json().get("events", []))
     rows = []
-    for event in response.json().get("events", []):
+    seen_event_ids = set()
+    for event in events:
         event_id = event.get("id")
-        if event_id is None or not event.get("date"):
+        if event_id is None or event_id in seen_event_ids or not event.get("date"):
             continue
+        seen_event_ids.add(event_id)
         competition = (event.get("competitions") or [{}])[0]
         teams = {c.get("homeAway"): c.get("team", {}).get("displayName", "") for c in competition.get("competitors", [])}
         status = event.get("status", {}).get("type", {}).get("name", "")
