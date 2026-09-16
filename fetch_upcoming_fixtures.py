@@ -14,20 +14,13 @@ from pitch_oracle_core.domain.entities import normalized_name
 from pitch_oracle_core.team_mappings import normalize_team_name
 
 
-ESPN_SCOREBOARD_WINDOW_DAYS = 7
-
-
-def _scoreboard_date_ranges(now: datetime, days_ahead: int) -> list[str]:
+def _scoreboard_dates(now: datetime, days_ahead: int) -> list[str]:
     if days_ahead < 0:
         raise ValueError("days_ahead must be non-negative")
-    ranges = []
-    start = now
-    horizon = now + timedelta(days=days_ahead)
-    while start <= horizon:
-        end = min(start + timedelta(days=ESPN_SCOREBOARD_WINDOW_DAYS - 1), horizon)
-        ranges.append(f"{start:%Y%m%d}-{end:%Y%m%d}")
-        start = end + timedelta(days=1)
-    return ranges
+    return [
+        f"{now + timedelta(days=offset):%Y%m%d}"
+        for offset in range(days_ahead + 1)
+    ]
 
 
 def fetch_upcoming_fixtures(
@@ -39,8 +32,8 @@ def fetch_upcoming_fixtures(
         raise ValueError(f"No ESPN slug configured for {config.key}")
     now = datetime.now(timezone.utc)
     events = []
-    for date_range in _scoreboard_date_ranges(now, days_ahead):
-        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config.espn_slug}/scoreboard?dates={date_range}"
+    for fixture_date in _scoreboard_dates(now, days_ahead):
+        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config.espn_slug}/scoreboard?dates={fixture_date}"
         response = requests.get(url, timeout=15)
         response.raise_for_status()
         events.extend(response.json().get("events", []))
