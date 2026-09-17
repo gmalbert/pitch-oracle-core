@@ -1,4 +1,7 @@
-from combine_raw_data import _direct_get, _download_football_data
+import pandas as pd
+import pytest
+
+from combine_raw_data import _direct_get, _download_football_data, combine_raw_data
 
 
 class FakeResponse:
@@ -121,3 +124,37 @@ def test_download_uses_session_without_ambient_proxy(monkeypatch):
     assert calls[0][0] is False
     assert calls[0][1] == "https://football-data.co.uk/test.csv"
     assert calls[1] == "closed"
+
+
+def test_refresh_retains_cached_history_when_provider_is_unavailable(
+    monkeypatch, tmp_path, capsys
+):
+    cached_path = tmp_path / "combined_historical_data.csv"
+    cached = pd.DataFrame(
+        [{"MatchDate": "2026-08-01", "HomeTeam": "A", "AwayTeam": "B"}]
+    )
+    cached.to_csv(cached_path, sep="\t", index=False)
+    monkeypatch.setattr(
+        "combine_raw_data._download_football_data",
+        lambda url: (_ for _ in ()).throw(RuntimeError("provider unavailable")),
+    )
+    monkeypatch.setattr("combine_raw_data.time.sleep", lambda _: None)
+
+    result = combine_raw_data("epl", seasons=("2526",), output_dir=tmp_path)
+
+    pd.testing.assert_frame_equal(result, cached)
+    pd.testing.assert_frame_equal(pd.read_csv(cached_path, sep="\t"), cached)
+    assert "retaining 1 cached historical rows" in capsys.readouterr().out
+
+
+def test_refresh_rejects_invalid_cached_history(monkeypatch, tmp_path):
+    cached_path = tmp_path / "combined_historical_data.csv"
+    cached_path.write_text("not,a,valid,cache\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "combine_raw_data._download_football_data",
+        lambda url: (_ for _ in ()).throw(RuntimeError("provider unavailable")),
+    )
+    monkeypatch.setattr("combine_raw_data.time.sleep", lambda _: None)
+
+    with pytest.raises(RuntimeError, match="cached historical data is invalid"):
+        combine_raw_data("epl", seasons=("2526",), output_dir=tmp_path)

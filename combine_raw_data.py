@@ -64,6 +64,15 @@ def _direct_get(url: str, **kwargs) -> requests.Response:
         session.close()
 
 
+def _load_cached_history(path: Path) -> pd.DataFrame:
+    frame = pd.read_csv(path, sep="\t")
+    date_columns = {"Date", "MatchDate"}.intersection(frame.columns)
+    identity_columns = {"HomeTeam", "AwayTeam"}.intersection(frame.columns)
+    if frame.empty or not date_columns or len(identity_columns) != 2:
+        raise ValueError("cached historical data is empty or missing match identity columns")
+    return frame
+
+
 def _download_football_data(url: str) -> pd.DataFrame:
     """Download one Football-Data CSV with host fallback and validation."""
     errors = []
@@ -119,6 +128,8 @@ def combine_raw_data(
 ) -> pd.DataFrame:
     config = get_league_config(league) if isinstance(league, str) else league
     seasons = tuple(seasons or recent_season_codes())
+    output = Path(output_dir or os.getenv("PITCH_ORACLE_DATA_DIR", config.data_dir_name))
+    output_file = output / "combined_historical_data.csv"
     competition = penaltyblog_competition(config, "footballdata")
     frames = []
     errors = []
@@ -142,15 +153,27 @@ def combine_raw_data(
             errors.append(message)
             print(f"Error loading season {season} for {competition}: {exc}")
         time.sleep(0.5)   # polite rate limit
+    if errors and output_file.exists():
+        try:
+            cached = _load_cached_history(output_file)
+        except (OSError, pd.errors.ParserError, ValueError) as exc:
+            raise RuntimeError(
+                "Football-Data refresh failed and the cached historical data is invalid: "
+                f"{exc}"
+            ) from exc
+        print(
+            "Football-Data refresh was incomplete; retaining "
+            f"{len(cached)} cached historical rows from {output_file}"
+        )
+        return cached
     if not frames:
         details = "; ".join(errors) if errors else "no seasons were requested"
         raise RuntimeError(
             f"No historical data was downloaded for {config.key}. Details: {details}"
         )
     result = pd.concat(frames, ignore_index=True)
-    output = Path(output_dir or os.getenv("PITCH_ORACLE_DATA_DIR", config.data_dir_name))
     output.mkdir(parents=True, exist_ok=True)
-    result.to_csv(output / "combined_historical_data.csv", sep="\t", index=False)
+    result.to_csv(output_file, sep="\t", index=False)
     return result
 
 
