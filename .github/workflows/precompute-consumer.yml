@@ -84,7 +84,6 @@ jobs:
         shell: bash
         env:
           NO_PROXY: football-data.co.uk,www.football-data.co.uk
-          no_proxy: football-data.co.uk,www.football-data.co.uk
         run: ${{ inputs.data_command }}
 
       - name: Audit chronology and no-odds model candidate
