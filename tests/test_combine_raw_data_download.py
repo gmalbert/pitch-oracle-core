@@ -1,4 +1,4 @@
-from combine_raw_data import _download_football_data, _loopback_proxy_overrides
+from combine_raw_data import _direct_get, _download_football_data
 
 
 class FakeResponse:
@@ -27,7 +27,7 @@ def test_download_prefers_bare_hostname(monkeypatch):
         calls.append(url)
         return FakeResponse(content=csv, headers={"Content-Type": "text/csv"})
 
-    monkeypatch.setattr("combine_raw_data.requests.get", fake_get)
+    monkeypatch.setattr("combine_raw_data._direct_get", fake_get)
 
     frame = _download_football_data(
         "https://www.football-data.co.uk/mmz4281/2627/SC0.csv"
@@ -51,7 +51,7 @@ def test_download_falls_back_after_www_503(monkeypatch):
             )
         return FakeResponse(content=csv, headers={"Content-Type": "text/csv"})
 
-    monkeypatch.setattr("combine_raw_data.requests.get", fake_get)
+    monkeypatch.setattr("combine_raw_data._direct_get", fake_get)
     monkeypatch.setattr("combine_raw_data.time.sleep", lambda _: None)
 
     frame = _download_football_data(
@@ -65,7 +65,7 @@ def test_download_falls_back_after_www_503(monkeypatch):
 
 def test_download_rejects_html_even_with_success_status(monkeypatch):
     monkeypatch.setattr(
-        "combine_raw_data.requests.get",
+        "combine_raw_data._direct_get",
         lambda url, **kwargs: FakeResponse(
             content=b"<!doctype html><html>Unavailable</html>",
             headers={"Content-Type": "text/html"},
@@ -87,7 +87,7 @@ def test_download_handles_bom_and_cp1252(monkeypatch):
         "cp1252"
     )
     monkeypatch.setattr(
-        "combine_raw_data.requests.get",
+        "combine_raw_data._direct_get",
         lambda url, **kwargs: FakeResponse(
             content=b"\xef\xbb\xbf" + csv,
             headers={"Content-Type": "text/csv"},
@@ -99,36 +99,25 @@ def test_download_handles_bom_and_cp1252(monkeypatch):
     assert frame.loc[0, "HomeTeam"] == "Clüb"
 
 
-def test_download_bypasses_dead_loopback_proxy(monkeypatch):
+def test_download_uses_session_without_ambient_proxy(monkeypatch):
     calls = []
     csv = b"Date,HomeTeam,AwayTeam,FTHG,FTAG,FTR\n01/08/26,A,B,1,0,H\n"
-    proxy_names = (
-        "http_proxy", "https_proxy", "all_proxy",
-        "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
-    )
-    for name in proxy_names:
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("https_proxy", "http://127.0.0.1:80")
 
-    def fake_get(url, **kwargs):
-        calls.append(kwargs)
-        return FakeResponse(content=csv, headers={"Content-Type": "text/csv"})
+    class FakeSession:
+        trust_env = True
 
-    monkeypatch.setattr("combine_raw_data.requests.get", fake_get)
+        def get(self, url, **kwargs):
+            calls.append((self.trust_env, url, kwargs))
+            return FakeResponse(content=csv, headers={"Content-Type": "text/csv"})
 
-    frame = _download_football_data("https://football-data.co.uk/test.csv")
+        def close(self):
+            calls.append("closed")
 
-    assert len(frame) == 1
-    assert calls[0]["proxies"] == {"http": "", "https": "", "all": ""}
+    monkeypatch.setattr("combine_raw_data.requests.Session", FakeSession)
 
+    response = _direct_get("https://football-data.co.uk/test.csv", timeout=1)
 
-def test_download_preserves_external_proxy(monkeypatch):
-    proxy_names = (
-        "http_proxy", "https_proxy", "all_proxy",
-        "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
-    )
-    for name in proxy_names:
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:8080")
-
-    assert _loopback_proxy_overrides() is None
+    assert response.status_code == 200
+    assert calls[0][0] is False
+    assert calls[0][1] == "https://football-data.co.uk/test.csv"
+    assert calls[1] == "closed"

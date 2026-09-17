@@ -30,11 +30,6 @@ FOOTBALL_DATA_REQUIRED_COLUMNS = {
 }
 DOWNLOAD_ATTEMPTS = 3
 DOWNLOAD_TIMEOUT_SECONDS = 30
-LOOPBACK_PROXY_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
-PROXY_ENV_NAMES = (
-    "http_proxy", "https_proxy", "all_proxy",
-    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
-)
 
 
 def _host_variant(url: str, host: str) -> str:
@@ -60,19 +55,13 @@ def _decode_csv(response: requests.Response) -> str:
         return payload.decode("cp1252")
 
 
-def _loopback_proxy_overrides() -> dict[str, str] | None:
-    for name in PROXY_ENV_NAMES:
-        value = os.getenv(name, "").strip()
-        if not value:
-            continue
-        candidate = value if "://" in value else f"http://{value}"
-        try:
-            hostname = urlsplit(candidate).hostname
-        except ValueError:
-            continue
-        if hostname and hostname.lower() in LOOPBACK_PROXY_HOSTS:
-            return {"http": "", "https": "", "all": ""}
-    return None
+def _direct_get(url: str, **kwargs) -> requests.Response:
+    session = requests.Session()
+    session.trust_env = False
+    try:
+        return session.get(url, **kwargs)
+    finally:
+        session.close()
 
 
 def _download_football_data(url: str) -> pd.DataFrame:
@@ -82,11 +71,10 @@ def _download_football_data(url: str) -> pd.DataFrame:
         candidate = _host_variant(url, host)
         for attempt in range(DOWNLOAD_ATTEMPTS):
             try:
-                response = requests.get(
+                response = _direct_get(
                     candidate,
                     headers={"Accept": "text/csv,text/plain;q=0.9,*/*;q=0.1"},
                     timeout=DOWNLOAD_TIMEOUT_SECONDS,
-                    proxies=_loopback_proxy_overrides(),
                 )
                 if 500 <= response.status_code < 600 and attempt < DOWNLOAD_ATTEMPTS - 1:
                     time.sleep(_retry_delay(response))
