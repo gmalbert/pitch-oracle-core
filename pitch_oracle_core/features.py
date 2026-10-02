@@ -35,7 +35,7 @@ def completed_match_rows(
     return result.loc[valid].reset_index(drop=True)
 
 
-FEATURE_POLICY_VERSION = 3
+FEATURE_POLICY_VERSION = 4
 
 # football-data.co.uk mixes descriptive bookmaker fields with terse legacy
 # codes (for example ``B365H``, ``PSCH`` and ``AvgCA``).  Looking only for the
@@ -90,6 +90,13 @@ _EXCLUDED_COLUMNS = {
     "HomeFirstHalfDifferentialAve", "AwayFirstHalfDifferentialAve",
     "HomeGameDifferentialAve", "AwayGameDifferentialAve",
     "HomeFirstToSecondHalfGoalRatioAve", "AwayFirstToSecondHalfGoalRatioAve",
+    "fixture_id", "edition_id", "rules_version", "league_key", "kickoff_precision",
+    "home_team_id", "away_team_id", "kickoff_utc", "feature_timestamp", "as_of",
+    "feature_observed_at", "squad_feature_observed_at", "observed_at", "snapshot_at",
+    "provider_schema_version", "integration_schema_version", "match_id", "player_id",
+    "kickoff_lower_bound_utc",
+    "home_xg", "away_xg", "xg_home", "xg_away",
+    "home_lineup_status", "away_lineup_status", "home_keeper_id", "away_keeper_id",
 }
 
 
@@ -98,6 +105,19 @@ def is_prematch_feature(column: str) -> bool:
     name = str(column)
     if name in _EXCLUDED_COLUMNS:
         return False
+    if name.startswith(("raw_", "pitchapi_")) or name.endswith(("_observed_at", "_snapshot_at", "_provider_id")):
+        return False
+    # Known provider measures may enter only through the registered past-only state.
+    from pitch_oracle_core.features.families import feature_family
+    from pitch_oracle_core.pitchapi.normalize import ADVANCED_FIELD_MAP
+    raw_metrics = {*ADVANCED_FIELD_MAP.values(), "xgot", "expected_goals", "expected_goals_on_target", "shots", "shots_on_target", "goals"}
+    if name in raw_metrics or any(name == f"{side}_{metric}" for side in ("home", "away") for metric in raw_metrics):
+        return False
+    if name.startswith(("home_", "away_")) and feature_family(name) is None:
+        # Keep the football-data ledger's explicitly shifted state.
+        baseline = {"history_n", "rest_days", "points_l5", "goals_for_l5", "goals_against_l5", "goal_diff_l10", "clean_sheet_l10", "shots_for_ewm10", "shots_against_ewm10"}
+        if name.removeprefix("home_").removeprefix("away_") not in baseline:
+            return False
     if name.startswith("Ref"):
         # Current referee aggregates include the row being predicted.
         return False
@@ -126,11 +146,15 @@ def is_market_feature(column: str) -> bool:
     return name in _EXACT_MARKET_CODES or bool(_FOOTBALL_DATA_MARKET_CODE.fullmatch(name))
 
 
-def no_odds_feature_columns(frame: pd.DataFrame) -> list[str]:
+def no_odds_feature_columns(frame: pd.DataFrame, *, enabled_families: Sequence[str] = ()) -> list[str]:
     """Return point-in-time feature columns that are independent of the market."""
+    from pitch_oracle_core.features.families import FAMILIES, feature_family
+    enabled = set(enabled_families)
+    if enabled.difference(FAMILIES):
+        raise ValueError(f"Unknown feature families: {sorted(enabled.difference(FAMILIES))}")
     return [
         column for column in prematch_feature_columns(frame)
-        if not is_market_feature(column)
+        if not is_market_feature(column) and (feature_family(column) is None or feature_family(column) in enabled)
     ]
 
 

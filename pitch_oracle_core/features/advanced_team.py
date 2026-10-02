@@ -50,7 +50,9 @@ def _prepare_observations(observations: pd.DataFrame, source_fixtures: pd.DataFr
         raise ValueError("Source fixtures require canonical IDs and kickoff")
     if source_fixtures.fixture_id.duplicated().any():
         raise ValueError("Source fixture identity must be unique")
-    source = source_fixtures[["fixture_id", "kickoff_utc", "home_team_id", "away_team_id"]].rename(columns={"kickoff_utc": "source_kickoff_utc"})
+    source = source_fixtures[["fixture_id", "kickoff_utc", "home_team_id", "away_team_id"]].copy()
+    source["source_kickoff_lower_bound"] = source_fixtures.get("kickoff_lower_bound_utc", source_fixtures.kickoff_utc)
+    source = source.rename(columns={"kickoff_utc": "source_kickoff_utc"})
     frame = observations.drop(columns=["source_kickoff_utc"], errors="ignore").merge(source, on="fixture_id", how="left", validate="many_to_one")
     frame["observed_at"] = pd.to_datetime(frame.observed_at, utc=True, errors="raise")
     frame["source_kickoff_utc"] = pd.to_datetime(frame.source_kickoff_utc, utc=True, errors="raise")
@@ -58,7 +60,7 @@ def _prepare_observations(observations: pd.DataFrame, source_fixtures: pd.DataFr
         raise ValueError("Every observation needs actual lineage and a mapped source fixture")
     if (~((frame.team_id == frame.home_team_id) | (frame.team_id == frame.away_team_id))).any():
         raise ValueError("Observation team does not belong to its source fixture")
-    if (frame.observed_at <= frame.source_kickoff_utc).any():
+    if (frame.observed_at <= pd.to_datetime(frame.source_kickoff_lower_bound, utc=True)).any():
         raise ValueError("Post-match metrics cannot be observed before their source kickoff")
     if frame.duplicated(["fixture_id", "team_id", "observed_at"]).any():
         raise ValueError("Duplicate source fixture/team/observation revision")
@@ -105,8 +107,9 @@ def build_advanced_team_features(
     output = []
     for target in targets.itertuples(index=False):
         kickoff = _timestamp(target.kickoff_utc, "target kickoff")
-        cutoff = _timestamp(as_of if as_of is not None else getattr(target, "as_of", kickoff - pd.Timedelta(microseconds=1)), "as_of")
-        if cutoff >= kickoff:
+        default_cutoff = _timestamp(getattr(target, "kickoff_lower_bound_utc", kickoff), "kickoff lower bound") - pd.Timedelta(microseconds=1)
+        cutoff = _timestamp(as_of if as_of is not None else getattr(target, "as_of", default_cutoff), "as_of")
+        if cutoff >= _timestamp(getattr(target, "kickoff_lower_bound_utc", kickoff), "kickoff lower bound"):
             raise ValueError("Pre-match as_of must predate target kickoff")
         row = {"fixture_id": target.fixture_id, "as_of": cutoff.isoformat(), **{name: np.nan for name in names}}
         observed_times = []

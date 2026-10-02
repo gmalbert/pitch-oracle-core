@@ -6,6 +6,65 @@ import numpy as np
 import pandas as pd
 
 from .lineup_strength import shrink_player
+from pitch_oracle_core.pitchapi.normalize import boolean
+
+
+def build_keeper_matches(players: pd.DataFrame, shots: pd.DataFrame, fixtures: pd.DataFrame) -> pd.DataFrame:
+    """Join immutable player/shot revisions without inventing keeper attribution.
+
+    Penalties in regulation are included; shootouts and own goals are excluded.
+    Without substitution event timing, a match with multiple keepers or a keeper
+    playing fewer than 89 minutes cannot safely attribute all opposing shots.
+    Such a match contributes no keeper shot-stopping observation.
+    """
+    columns = ["fixture_id", "player_id", "team_id", "source_kickoff_utc", "observed_at", "minutes", "xgot_faced", "goals_conceded_non_own_goal", "shots_on_target_faced"]
+    if players.empty or shots.empty:
+        return pd.DataFrame(columns=columns)
+    players, shots = players.copy(), shots.copy()
+    for frame in (players, shots):
+        frame["observed_at"] = pd.to_datetime(frame.observed_at, utc=True, errors="raise")
+        if frame.observed_at.isna().any():
+            raise ValueError("Keeper derivation requires actual observations")
+    if fixtures.fixture_id.duplicated().any():
+        raise ValueError("Keeper source fixtures must be unique")
+    fixture_lookup = fixtures.set_index("fixture_id")
+    output = []
+    for fixture_id, player_history in players.groupby("fixture_id", sort=True):
+        if fixture_id not in fixture_lookup.index:
+            raise ValueError("Unmapped keeper source fixture")
+        source = fixture_lookup.loc[fixture_id]
+        kickoff = pd.Timestamp(source.kickoff_utc)
+        shot_history = shots.loc[shots.fixture_id == fixture_id]
+        if shot_history.empty:
+            continue
+        for observed_at in sorted(set(player_history.observed_at).union(shot_history.observed_at)):
+            if observed_at <= kickoff:
+                raise ValueError("Keeper match observations must follow source kickoff")
+            p = player_history.loc[player_history.observed_at <= observed_at].sort_values("observed_at").drop_duplicates("player_id", keep="last")
+            s = shot_history.loc[shot_history.observed_at <= observed_at]
+            if p.empty or s.empty:
+                continue
+            # Select a complete shot response, so a removed shot does not survive a correction.
+            s = s.loc[s.observed_at == s.observed_at.max()]
+            for team_id in (source.home_team_id, source.away_team_id):
+                keepers = p.loc[p.team_id.eq(team_id) & p.position.fillna("").str.upper().eq("GK") & pd.to_numeric(p.minutes, errors="coerce").gt(0)]
+                if len(keepers) != 1 or float(keepers.iloc[0].minutes) < 89:
+                    continue
+                keeper = keepers.iloc[0]
+                faced = s.loc[s.opponent_id.eq(team_id) & ~s.period.fillna("").str.casefold().isin({"penaltyshootout", "penalty_shootout", "shootout"})]
+                # Unknown own-goal/target flags cannot be assumed false.
+                own_known = faced.is_own_goal.map(boolean).notna().all()
+                ordinary = faced.loc[faced.is_own_goal.map(boolean).eq(False)]
+                targets = ordinary.loc[ordinary.is_on_target.map(boolean).eq(True)]
+                complete = own_known and ordinary.is_on_target.map(boolean).notna().all() and targets.expected_goals_on_target.notna().all()
+                metrics = {"xgot_faced": float(targets.expected_goals_on_target.sum()) if complete else np.nan, "goals_conceded_non_own_goal": float(ordinary.is_goal.map(boolean).sum()) if complete and ordinary.is_goal.map(boolean).notna().all() else np.nan, "shots_on_target_faced": float(len(targets)) if complete else np.nan}
+                row = {"fixture_id": fixture_id, "player_id": keeper.player_id, "team_id": team_id, "source_kickoff_utc": kickoff.isoformat(), "observed_at": observed_at.isoformat(), "minutes": float(keeper.minutes), **metrics}
+                for name in ("keeper_claims", "keeper_claims_won", "keeper_claim_rate", "keeper_distributions", "keeper_distribution_accuracy", "keeper_sweeper_actions", "vaep_defensive"):
+                    row[name] = keeper.get(name, np.nan)
+                if pd.notna(row["keeper_distribution_accuracy"]) and pd.notna(row["keeper_distributions"]):
+                    row["keeper_distributions_completed"] = row["keeper_distributions"] * row["keeper_distribution_accuracy"] / 100.0
+                output.append(row)
+    return pd.DataFrame(output) if output else pd.DataFrame(columns=columns)
 
 
 def keeper_match_value(frame: pd.DataFrame) -> pd.Series:
@@ -54,5 +113,9 @@ def keeper_state(matches: pd.DataFrame, *, target_kickoff: pd.Timestamp, as_of: 
                 a, b = pd.to_numeric(history[numerator], errors="coerce"), pd.to_numeric(history[denominator], errors="coerce")
                 known = a.notna() & b.gt(0)
                 row[label] = float(a.loc[known].sum() / b.loc[known].sum()) if known.any() else np.nan
+        for source, label in (("vaep_defensive", "keeper_vaep_defensive"), ("keeper_sweeper_actions", "keeper_sweeper_actions")):
+            values = pd.to_numeric(history.get(source, pd.Series(np.nan, index=history.index)), errors="coerce")
+            known = values.notna() & minutes.gt(0)
+            row[label] = float(values.loc[known].sum() * 90 / minutes.loc[known].sum()) if known.any() else np.nan
         rows.append(row)
     return pd.DataFrame(rows)

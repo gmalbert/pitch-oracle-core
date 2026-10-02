@@ -1059,7 +1059,7 @@ def test_explicit_preparation_pipeline_uses_full_team_sequence_and_edition(tmp_p
     result = prepare_historical_features(
         league_key="belgium", source=source, destination=destination
     )
-    second = result.loc[result.fixture_id.str.contains("20260808")].iloc[0]
+    second = result.loc[pd.to_datetime(result.kickoff_utc, utc=True).dt.strftime("%Y-%m-%d") == "2026-08-08"].iloc[0]
     assert second.HomeTeamPointsLast5 == pytest.approx(3.0)
     assert second.HomeRestDays == pytest.approx(7.0)
     assert set(result.Season) == {"2026-27"}

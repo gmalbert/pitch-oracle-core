@@ -47,7 +47,8 @@ def canonical_fixture_frame(source: pd.DataFrame, config: LeagueConfig) -> pd.Da
             raise ValueError("Canonical teams must be distinct")
         identity = f"{kickoff.isoformat()}|{names['home_team_id']}|{names['away_team_id']}"
         existing_id = row.get("fixture_id")
-        rows.append({**row.to_dict(), **names, "fixture_id": str(existing_id) if pd.notna(existing_id) else stable_fixture_id(edition.edition_id, "canonical", identity), "league_key": config.key, "edition_id": row.get("edition_id") if pd.notna(row.get("edition_id")) else edition.edition_id, "rules_version": edition.rules_version, "kickoff_utc": kickoff, "kickoff_precision": precision, "MatchDate": date.strftime("%Y-%m-%d"), "status": row.get("status", "finished" if pd.notna(row.get("FTR", row.get("FullTimeResult"))) else "scheduled")})
+        lower_bound = kickoff if precision == "exact" else local.normalize().tz_convert("UTC")
+        rows.append({**row.to_dict(), **names, "fixture_id": str(existing_id) if pd.notna(existing_id) else stable_fixture_id(edition.edition_id, "canonical", identity), "league_key": config.key, "edition_id": row.get("edition_id") if pd.notna(row.get("edition_id")) else edition.edition_id, "rules_version": edition.rules_version, "kickoff_utc": kickoff, "kickoff_precision": precision, "kickoff_lower_bound_utc": lower_bound, "MatchDate": date.strftime("%Y-%m-%d"), "status": row.get("status", "finished" if pd.notna(row.get("FTR", row.get("FullTimeResult"))) else "scheduled")})
     result = pd.DataFrame(rows)
     if not result.empty and result.fixture_id.duplicated().any():
         raise ValueError("Duplicate canonical fixture identity")
