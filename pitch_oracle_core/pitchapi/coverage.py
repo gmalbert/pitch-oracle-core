@@ -40,7 +40,7 @@ def _observation_time(frame: pd.DataFrame, timestamp: str = "observed_at") -> st
     return values.max().isoformat() if not values.empty else None
 
 
-def build_coverage_report(data_dir: str | Path, *, league_key: str, now: datetime | None = None) -> dict:
+def build_coverage_report(data_dir: str | Path, *, league_key: str, now: datetime | None = None, season: str | None = None) -> dict:
     now = utc_timestamp(now or datetime.now(timezone.utc))
     data_dir = Path(data_dir)
     matches = read_frame(data_dir / "pitchapi_matches.csv")
@@ -53,6 +53,13 @@ def build_coverage_report(data_dir: str | Path, *, league_key: str, now: datetim
     momentum = read_frame(data_dir / "pitchapi_momentum.parquet")
     run_path = data_dir / "pitchapi_provider_run.json"
     run = json.loads(run_path.read_text(encoding="utf-8")) if run_path.exists() else {}
+    if season is not None and not matches.empty:
+        matches = matches.loc[matches.season.astype(str) == season].copy()
+        provider_ids = set(matches.match_id.astype(str))
+        if not audit.empty:
+            audit = audit.loc[audit.provider_match_id.astype(str).isin(provider_ids)]
+        canonical_ids = set(matches.fixture_id.dropna().astype(str))
+        summary, advanced, players, lineups, network, momentum = [frame.loc[frame.fixture_id.astype(str).isin(canonical_ids)] if not frame.empty else frame for frame in (summary, advanced, players, lineups, network, momentum)]
     report = {"provider": "pitchapi", "schema_version": INTEGRATION_SCHEMA_VERSION, "league_key": league_key, "checked_at": now.isoformat(), "last_run_status": run.get("status", "unavailable"), "capabilities": {}, "mapping": {}, "latency_minutes": {}, "lineup_lead_minutes": {}, "missingness": {}}
     if not audit.empty:
         counts = audit.status.value_counts().to_dict()
@@ -111,8 +118,9 @@ def build_coverage_report(data_dir: str | Path, *, league_key: str, now: datetim
             complete = {(str(fixture), str(team)) for (fixture, team, snapshot), count in counts.items() if count == 11}
             first = eligible.groupby(["fixture_id", "team_id"]).agg({"snapshot_at": "min", "kickoff_utc": "first"})
             lead_times = ((first.kickoff_utc - first.snapshot_at).dt.total_seconds() / 60).tolist()
-        expected_pairs = {(str(row.fixture_id), str(getattr(row, f"{side}_team_id"))) for row in upcoming.itertuples() for side in ("home", "away")}
-        capability = capability_from_frame(name=f"{status}_lineups", expected_ids=expected_pairs, observed_ids=complete, observed_at=_observation_time(eligible, "snapshot_at"), now=now, maximum_age_hours=6 if status == "predicted" else .5, failed=listing_failed or "lineups" in failing_endpoints)
+        due = upcoming if status == "predicted" else upcoming.loc[upcoming.kickoff_utc <= now + pd.Timedelta(minutes=90)]
+        expected_pairs = {(str(row.fixture_id), str(getattr(row, f"{side}_team_id"))) for row in due.itertuples() for side in ("home", "away")}
+        capability = capability_from_frame(name=f"{status}_lineups", expected_ids=expected_pairs, observed_ids=complete, observed_at=_observation_time(eligible, "snapshot_at"), now=now, maximum_age_hours=6 if status == "predicted" else 1.25, failed=listing_failed or "lineups" in failing_endpoints)
         # Confirmed-lineup freshness is a polling outcome, not expiry of an unchanged official XI.
         if capability["status"] == "stale" and status == "confirmed":
             capability["message"] = "Latest lineup observation is older than the near-kickoff freshness target"
@@ -131,12 +139,14 @@ def build_coverage_report(data_dir: str | Path, *, league_key: str, now: datetim
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Audit capability-specific PitchAPI coverage")
     parser.add_argument("--league", required=True)
-    parser.add_argument("--season", help="Reserved for consumer-compatible invocation; coverage includes stored seasons")
+    parser.add_argument("--season", help="Restrict capability and missingness reports to this season")
     parser.add_argument("--data-dir", default="data_files")
-    parser.add_argument("--output", default="precomputed/provider-health/pitchapi.json")
+    parser.add_argument("--output", help="Default: DATA_DIR/pitchapi_health.json and the provider-health compatibility report")
     args = parser.parse_args(argv)
-    report = build_coverage_report(args.data_dir, league_key=args.league)
-    atomic_json(Path(args.output), report)
+    report = build_coverage_report(args.data_dir, league_key=args.league, season=args.season)
+    atomic_json(Path(args.output) if args.output else Path(args.data_dir) / "pitchapi_health.json", report)
+    if args.output is None:
+        atomic_json(Path("precomputed/provider-health/pitchapi.json"), report)
     print(f"PitchAPI audit: {len(report['capabilities'])} capabilities, mapping gate {report['mapping'].get('gate_passed', False)}")
     return 0
 

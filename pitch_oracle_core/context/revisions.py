@@ -36,8 +36,15 @@ def forecast_revision_deltas(ledger: pd.DataFrame) -> pd.DataFrame:
     ):
         if column in frame.columns:
             frame[f"delta_{column}"] = frame.groupby("fixture_id")[column].diff()
-    frame["revision_label"] = [
+    inferred = [
         revision_label(kickoff, issued)
         for kickoff, issued in zip(frame["kickoff_utc"], frame["issued_at"])
     ]
+    if "revision_label" in frame:
+        valid = {"initial", "24_hour", "lineup", "hourly", "schedule_update", "closing"}
+        if not frame.revision_label.dropna().isin(valid).all():
+            raise ValueError("Unknown explicit forecast revision label")
+        frame["revision_label"] = frame.revision_label.where(frame.revision_label.notna(), pd.Series(inferred, index=frame.index))
+    else:
+        frame["revision_label"] = inferred
     return frame
