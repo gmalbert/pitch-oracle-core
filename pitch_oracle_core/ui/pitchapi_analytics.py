@@ -34,6 +34,10 @@ def optional_frame(context, name, *, filters=None, latest=True, groups=None, clo
         return pd.DataFrame()
     try:
         frame = context.repository.frame(name, filters=filters)
+        if latest and "fixture_id" in frame and name not in {"pitchapi_matches", "pitchapi_forecast_revisions", "pitchapi_closing_forecasts"}:
+            from pitch_oracle_core.pitchapi.revisions import complete_responses
+            revisions = context.repository.frame("pitchapi_response_revisions", filters=filters) if context.repository.available("pitchapi_response_revisions") else pd.DataFrame()
+            return complete_responses(frame, revisions, artifact=name, clock=clock)
         return latest_revision(frame, groups, clock) if latest else frame
     except (OSError, ValueError, TypeError, KeyError) as exc:
         st.warning(f"{name.removeprefix('pitchapi_').replace('_', ' ').title()} cannot be displayed: {type(exc).__name__}.")
@@ -67,13 +71,15 @@ def _provenance(frame, clock="observed_at"):
         st.caption(f"Observed {pd.to_datetime(frame[clock], utc=True).max().isoformat()} · {len(frame)} rows in this revision.")
 
 
-def shot_chart(shots):
+def shot_chart(shots, team_labels=None):
     data = shots.dropna(subset=["x", "y"]).copy()
+    data["Team"] = data.team_id.map(team_labels or {}).fillna(data.team_id)
+    data["Marker xG"] = data.expected_goals.fillna(0)
     data["Outcome"] = data.is_goal.map(lambda value: "Unknown" if pd.isna(value) else "Goal" if boolean(value) else "Shot")
-    return alt.Chart(data).mark_circle(opacity=.8).encode(
+    return alt.Chart(data).mark_point(filled=True, opacity=.8).encode(
         x=alt.X("x:Q", scale=alt.Scale(domain=[0, 105]), title="Pitch length (m) → attacking goal"),
         y=alt.Y("y:Q", scale=alt.Scale(domain=[0, 68]), title="Pitch width (m)"),
-        color="team_id:N", shape="Outcome:N", size=alt.Size("expected_goals:Q", scale=alt.Scale(domain=[0, 1], range=[25, 650]), title="xG"),
+        color="Team:N", shape="Outcome:N", size=alt.Size("Marker xG:Q", scale=alt.Scale(domain=[0, 1], range=[25, 650]), title="xG"),
         tooltip=["player_name:N", "minute:Q", "Outcome:N", alt.Tooltip("expected_goals:Q", format=".3f"), alt.Tooltip("expected_goals_on_target:Q", format=".3f")],
     ).properties(height=360)
 
@@ -83,10 +89,11 @@ def _lineups(context, fixture_id):
     if frame.empty:
         st.info("No observed lineup is available for this fixture.")
         return
+    labels = _team_labels(context)
     for column, (team, members) in zip(st.columns(2), frame.groupby("team_id", sort=False)):
         with column:
             status = str(members.iloc[0].lineup_status)
-            st.subheader(f"{team} · {status}")
+            st.subheader(f"{labels.get(team, team)} · {status}")
             _provenance(members, "snapshot_at")
             st.caption(f"Formation: {members.iloc[0].get('formation') or 'unknown'}")
             fields = [name for name in ("player_name", "position", "is_starter") if name in members]
@@ -118,12 +125,13 @@ def _network(context, fixture_id):
     if frame.empty:
         st.info("Passing network unavailable.")
         return
-    selected = st.selectbox("Network team", sorted(frame.team_id.unique()), key="pitchapi_network_team")
+    labels = _team_labels(context)
+    selected = st.selectbox("Network team", sorted(frame.team_id.unique()), format_func=lambda team: labels.get(team, team), key="pitchapi_network_team")
     frame = frame.loc[frame.team_id == selected]
     nodes = frame.loc[frame.kind == "node"].dropna(subset=["player_id", "avg_x", "avg_y"])
     edges = frame.loc[frame.kind == "edge"].reindex(columns=["from_player_id", "to_player_id", "passes"]).merge(nodes[["player_id", "avg_x", "avg_y"]].rename(columns={"player_id": "from_player_id", "avg_x": "x", "avg_y": "y"}), on="from_player_id").merge(nodes[["player_id", "avg_x", "avg_y"]].rename(columns={"player_id": "to_player_id", "avg_x": "x2", "avg_y": "y2"}), on="to_player_id")
-    lines = alt.Chart(edges).mark_rule(opacity=.45).encode(x=alt.X("x:Q", scale=alt.Scale(domain=[0, 105])), y=alt.Y("y:Q", scale=alt.Scale(domain=[0, 68])), x2="x2:Q", y2="y2:Q", strokeWidth="passes:Q", tooltip=["from_player_id:N", "to_player_id:N", "passes:Q"])
-    points = alt.Chart(nodes).mark_circle(size=180).encode(x="avg_x:Q", y="avg_y:Q", tooltip=["player_name:N", "passes:Q", "passes_received:Q"])
+    lines = alt.Chart(edges).mark_rule(opacity=.45).encode(x=alt.X("x:Q", scale=alt.Scale(domain=[0, 105]), title="Pitch length (m) → attacking goal"), y=alt.Y("y:Q", scale=alt.Scale(domain=[0, 68]), title="Pitch width (m)"), x2="x2:Q", y2="y2:Q", strokeWidth=alt.StrokeWidth("passes:Q", title="Passes"), tooltip=["from_player_id:N", "to_player_id:N", "passes:Q"])
+    points = alt.Chart(nodes).mark_circle(size=180).encode(x=alt.X("avg_x:Q", title="Pitch length (m) → attacking goal"), y=alt.Y("avg_y:Q", title="Pitch width (m)"), tooltip=["player_name:N", "passes:Q", "passes_received:Q"])
     st.altair_chart((lines + points).properties(height=360), width="stretch")
     _provenance(frame)
     st.caption("Both teams attack left to right in their own coordinate frame.")
@@ -135,7 +143,8 @@ def _heatmaps(context, fixture_id):
         st.info("Heatmaps unavailable.")
         return
     members = frame[["team_id", "player_id", "player_name", "kind"]].drop_duplicates().reset_index(drop=True)
-    labels = members.apply(lambda row: f"{row.team_id} · {row.player_name if pd.notna(row.player_name) else 'Team'}", axis=1)
+    teams = _team_labels(context)
+    labels = members.apply(lambda row: f"{teams.get(row.team_id, row.team_id)} · {row.player_name if pd.notna(row.player_name) else 'Team'}", axis=1)
     index = st.selectbox("Heatmap subject", range(len(members)), format_func=lambda i: labels.iloc[i])
     member = members.iloc[index]
     selected = frame.loc[frame.team_id.eq(member.team_id) & (frame.player_id.eq(member.player_id) if pd.notna(member.player_id) else frame.player_id.isna())]
@@ -146,7 +155,8 @@ def _heatmaps(context, fixture_id):
 
 
 def render_match_detail(context, fixture_id):
-    section = st.segmented_control("Match detail", ["Lineups", "Forecast history", "Shots", "Momentum", "Team comparison", "Players", "Passing network", "Heatmaps"], default="Lineups", key="pitchapi_match_detail")
+    section = st.segmented_control("Match detail", ["Lineups", "Forecast history", "Shots", "Momentum", "Team comparison", "Players", "Passing network", "Heatmaps"], default="Lineups", key="pitchapi_match_detail") or "Lineups"
+    st.subheader(section)
     if section == "Lineups":
         _lineups(context, fixture_id)
     elif section == "Forecast history":
@@ -160,7 +170,7 @@ def render_match_detail(context, fixture_id):
         if shots.empty:
             st.info("Shot events unavailable. A known zero-shot result is shown only when a complete response was observed.")
         else:
-            st.altair_chart(shot_chart(shots), width="stretch")
+            st.altair_chart(shot_chart(shots, _team_labels(context)), width="stretch")
             _provenance(shots)
             st.caption("Provider coordinates: 105 × 68 metres; each team attacks left to right. Marker size shows xG; missing xG is unknown.")
     elif section == "Momentum":
@@ -178,6 +188,8 @@ def render_match_detail(context, fixture_id):
             st.info(f"{section} unavailable.")
         else:
             fields = [name for name in ("team_id", "player_name", "position", "minutes", "rating", "xt_total", "vaep_offensive", "vaep_defensive", "passes", "pass_accuracy", "progressive_passes", "ppda", "field_tilt", "direct_speed", "xag") if name in frame and frame[name].notna().any()]
+            if "team_id" in frame:
+                frame["team_id"] = frame.team_id.map(_team_labels(context)).fillna(frame.team_id)
             st.dataframe(frame[fields], hide_index=True, width="stretch")
             _provenance(frame)
     elif section == "Passing network":
@@ -202,6 +214,11 @@ def render_match_page(context):
 
 
 STYLE_METRICS = ("ppda", "field_tilt", "direct_speed", "progressive_passes", "xt_total", "vaep_offensive", "vaep_defensive")
+
+
+def _team_labels(context):
+    matches = _fixture_catalog(context)
+    return dict(zip(matches.home_team_id, matches.home_team)) | dict(zip(matches.away_team_id, matches.away_team)) if not matches.empty else {}
 
 
 def style_percentiles(frame):

@@ -12,6 +12,8 @@ from .cache import atomic_json
 from .contracts import INTEGRATION_SCHEMA_VERSION
 
 FILES = {
+    "pitchapi_response_revisions": "pitchapi_response_revisions.parquet",
+    "pitchapi_upcoming_predictions": "pitchapi_upcoming_predictions.csv",
     "pitchapi_matches": "pitchapi_matches.csv",
     "pitchapi_shots": "pitchapi_shots.parquet",
     "pitchapi_match_shot_features": "pitchapi_match_shot_features.csv",

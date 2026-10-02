@@ -69,10 +69,14 @@ def closing_forecasts(ledger: pd.DataFrame, *, as_of: pd.Timestamp, current_fixt
     frame["kickoff_utc"] = pd.to_datetime(frame.kickoff_utc, utc=True)
     frame = frame.loc[frame.issued_at <= cutoff].sort_values("issued_at", kind="stable").drop_duplicates("fixture_id", keep="last")
     if current_fixtures is not None and not current_fixtures.empty:
-        known = current_fixtures.drop_duplicates("fixture_id", keep="last").set_index("fixture_id").kickoff_utc
+        known_rows = current_fixtures.drop_duplicates("fixture_id", keep="last").set_index("fixture_id")
+        known = known_rows.kickoff_utc
         current = pd.to_datetime(frame.fixture_id.map(known), utc=True, errors="raise")
         # A stale forecast for the old date of a rescheduled match is not its close.
         frame = frame.loc[current.isna() | frame.kickoff_utc.eq(current)].copy()
+        if "status" in known_rows:
+            cancelled = known_rows.status.astype(str).str.casefold().isin(["cancelled", "canceled", "postponed"])
+            frame = frame.loc[~frame.fixture_id.isin(set(known_rows.index[cancelled]))]
     frame = frame.loc[frame.kickoff_utc <= cutoff].copy()
     frame["issued_stage"] = frame.revision_label
     frame["revision_label"] = "closing"
@@ -89,6 +93,25 @@ def replay_forecast(ledger: pd.DataFrame, *, fixture_id: str, as_of: pd.Timestam
         raise ValueError("Replay requires a timezone-aware cutoff")
     eligible = ledger.loc[ledger.fixture_id.astype(str).eq(str(fixture_id)) & (pd.to_datetime(ledger.issued_at, utc=True) <= cutoff)]
     return eligible.sort_values("issued_at", kind="stable").iloc[-1] if not eligible.empty else None
+
+
+def current_prediction_projection(ledger: pd.DataFrame, fixtures: pd.DataFrame, *, as_of, evidence_id=None) -> pd.DataFrame:
+    columns = ["fixture_id", "kickoff_utc", "MatchDate", "HomeTeam", "AwayTeam", "PredictionDate", "PredHomeWin", "PredDraw", "PredAwayWin", "ActualResult", "ModelVersion", "model_id", "model_fingerprint", "fallback_used", "fallback_reason", "feature_families", "evidence_id"]
+    if ledger.empty or fixtures.empty:
+        return pd.DataFrame(columns=columns)
+    validate_forecast_ledger(ledger)
+    frame = ledger.loc[pd.to_datetime(ledger.issued_at, utc=True) <= as_of].sort_values("issued_at", kind="stable").drop_duplicates("fixture_id", keep="last")
+    frame = frame.merge(fixtures[["fixture_id", "kickoff_utc", "MatchDate", "HomeTeam", "AwayTeam"]], on="fixture_id", suffixes=("", "_current"), validate="one_to_one")
+    kickoff = pd.to_datetime(frame.kickoff_utc, utc=True)
+    frame = frame.loc[(kickoff > as_of) & kickoff.eq(pd.to_datetime(frame.kickoff_utc_current, utc=True))].copy()
+    frame["MatchDate"] = pd.to_datetime(frame.MatchDate).dt.strftime("%Y-%m-%d")
+    frame["PredictionDate"] = frame.issued_at
+    for source, destination in (("p_home", "PredHomeWin"), ("p_draw", "PredDraw"), ("p_away", "PredAwayWin")):
+        frame[destination] = frame[source] * 100
+    frame["ActualResult"] = None
+    frame["ModelVersion"] = "pitchapi_v1"
+    frame["evidence_id"] = evidence_id
+    return frame.reindex(columns=columns)
 
 
 def capture_hourly_forecasts(inputs: pd.DataFrame, snapshots: pd.DataFrame, *, as_of: pd.Timestamp, destination: str | Path, predictor: Callable[[pd.DataFrame], tuple[np.ndarray, pd.DataFrame]]) -> tuple[pd.DataFrame, list[dict]]:
@@ -157,6 +180,7 @@ def refresh_lineup_forecasts(*, league_key: str, data_dir: str | Path = "data_fi
     history = read_frame(root / historical_file)
     upcoming = read_frame(root / "upcoming_fixtures.csv")
     if upcoming.empty:
+        write_frame(current_prediction_projection(pd.DataFrame(), upcoming, as_of=cutoff), root / "pitchapi_upcoming_predictions.csv")
         existing = read_frame(root / "pitchapi_forecast_revisions.parquet")
         if not existing.empty:
             write_frame(closing_forecasts(existing, as_of=cutoff), root / "pitchapi_closing_forecasts.parquet")
@@ -166,6 +190,7 @@ def refresh_lineup_forecasts(*, league_key: str, data_dir: str | Path = "data_fi
     # Canonical preparation validates timestamps; filter before calling its pre-match builder.
     from pitch_oracle_core.fixtures.canonical import canonical_fixture_frame
     upcoming = canonical_fixture_frame(upcoming, config, input_timezone=config.sources.upcoming_timezone)
+    known_upcoming = upcoming.copy()
     upcoming = upcoming.loc[(upcoming.kickoff_lower_bound_utc > cutoff) & (upcoming.kickoff_utc <= cutoff + pd.Timedelta(days=7)) & ~upcoming.status.isin(["cancelled", "canceled", "postponed"])]
     feature_failure = False
     try:
@@ -190,7 +215,8 @@ def refresh_lineup_forecasts(*, league_key: str, data_dir: str | Path = "data_fi
         return probabilities, metadata
     ledger, errors = capture_hourly_forecasts(inputs, read_frame(root / "pitchapi_lineup_snapshots.parquet"), as_of=cutoff, destination=root / "pitchapi_forecast_revisions.parquet", predictor=predict)
     if not ledger.empty:
-        write_frame(closing_forecasts(ledger, as_of=cutoff, current_fixtures=upcoming), root / "pitchapi_closing_forecasts.parquet")
+        write_frame(closing_forecasts(ledger, as_of=cutoff, current_fixtures=known_upcoming), root / "pitchapi_closing_forecasts.parquet")
+    write_frame(current_prediction_projection(ledger, upcoming, as_of=cutoff, evidence_id=configuration.evidence_id), root / "pitchapi_upcoming_predictions.csv")
     report = {"checked_at": cutoff.isoformat(), "league_key": league_key, "status": "degraded" if errors or feature_failure else "available", "fixtures": len(inputs), "provider_feature_failure": feature_failure, "errors": errors}
     atomic_json(root / "pitchapi_forecast_run.json", report)
     return report

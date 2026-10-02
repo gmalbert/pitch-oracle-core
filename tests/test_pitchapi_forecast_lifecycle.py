@@ -121,3 +121,4 @@ def test_old_schedule_forecast_does_not_become_close_for_rescheduled_fixture(tmp
     ledger, _ = capture(path, KICKOFF - pd.Timedelta(hours=2))
     current = fixture().assign(kickoff_utc=KICKOFF + pd.Timedelta(days=1))
     assert closing_forecasts(ledger, as_of=KICKOFF + pd.Timedelta(minutes=5), current_fixtures=current).empty
+    assert closing_forecasts(ledger, as_of=KICKOFF + pd.Timedelta(minutes=5), current_fixtures=fixture().assign(status="cancelled")).empty

@@ -52,6 +52,14 @@ def market_row(grid: FootballProbabilityGrid, fixture_id: str = "") -> dict[str,
     }
 
 
+def market_row_from_domain(grid, fixture_id: str = "") -> dict[str, Any]:
+    """Retain the consumer bridge while refusing material unrepresented tail mass."""
+    mass = grid.normalized_mass(max_tail=1e-8)
+    home = float((mass * np.arange(mass.shape[0])[:, None]).sum())
+    away = float((mass * np.arange(mass.shape[1])[None, :]).sum())
+    return market_row(FootballProbabilityGrid(mass, home, away, normalize=False), fixture_id)
+
+
 def market_grid(
     model: Any,
     home_team: str,

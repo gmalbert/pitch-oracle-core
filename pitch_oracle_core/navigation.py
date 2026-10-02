@@ -68,6 +68,10 @@ def build_navigation(config: LeagueConfig):
         from .ui.pitchapi_analytics import legacy_context, render_team_page
         render_team_page(legacy_context(config))
 
+    def feature_validation_page() -> None:
+        from .ui.pitchapi_analytics import legacy_context, render_model_page
+        render_model_page(legacy_context(config))
+
     return st.navigation(
         {
             "": [
@@ -94,6 +98,7 @@ def build_navigation(config: LeagueConfig):
                 st.Page(with_footer(statistics_page), title="Statistics", icon="📊", url_path="statistics"),
                 st.Page(with_footer(team_analytics_page), title="Team analytics", icon=":material/shield:", url_path="team-analytics"),
                 st.Page(with_footer(model_lab_page), title="Model Lab", icon="🧠", url_path="model-lab"),
+                st.Page(with_footer(feature_validation_page), title="Feature validation", icon=":material/science:", url_path="feature-validation"),
                 st.Page(with_footer(raw_data_page), title="Raw Data", icon="🗃️", url_path="raw-data"),
             ],
         }
