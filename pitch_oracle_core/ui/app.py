@@ -12,6 +12,8 @@ from .formatters import timezone_control
 
 def build_context(config, root: str | Path, *, scenario_adapter=None) -> AppContext:
     repository = ArtifactRepository.from_manifest(root, expected_league=config.key)
+    from pitch_oracle_core.pitchapi.artifacts import attach_analytics
+    repository = attach_analytics(repository, config.key)
     manifest = repository.manifest
     return AppContext(
         config=config,

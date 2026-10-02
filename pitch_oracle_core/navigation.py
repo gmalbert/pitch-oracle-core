@@ -60,6 +60,14 @@ def build_navigation(config: LeagueConfig):
     def raw_data_page() -> None:
         render_raw_data(config)
 
+    def match_analytics_page() -> None:
+        from .ui.pitchapi_analytics import legacy_context, render_match_page
+        render_match_page(legacy_context(config))
+
+    def team_analytics_page() -> None:
+        from .ui.pitchapi_analytics import legacy_context, render_team_page
+        render_team_page(legacy_context(config))
+
     return st.navigation(
         {
             "": [
@@ -73,6 +81,7 @@ def build_navigation(config: LeagueConfig):
             ],
             "Match Center": [
                 st.Page(with_footer(predictions_page), title="Predictions", icon="🎯", url_path="predictions"),
+                st.Page(with_footer(match_analytics_page), title="Match analytics", icon=":material/sports_soccer:", url_path="match-analytics"),
                 st.Page(with_footer(standings_page), title="Standings", icon="🏆", url_path="standings"),
                 st.Page(
                     with_footer(team_deep_dive_page),
@@ -83,6 +92,7 @@ def build_navigation(config: LeagueConfig):
             ],
             "Analysis": [
                 st.Page(with_footer(statistics_page), title="Statistics", icon="📊", url_path="statistics"),
+                st.Page(with_footer(team_analytics_page), title="Team analytics", icon=":material/shield:", url_path="team-analytics"),
                 st.Page(with_footer(model_lab_page), title="Model Lab", icon="🧠", url_path="model-lab"),
                 st.Page(with_footer(raw_data_page), title="Raw Data", icon="🗃️", url_path="raw-data"),
             ],

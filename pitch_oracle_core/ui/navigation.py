@@ -26,6 +26,7 @@ def enabled(page: PageSpec, context) -> bool:
 
 
 def page_specs() -> tuple[PageSpec, ...]:
+    from .pitchapi_analytics import render_match_page, render_team_page, render_model_page
     from .pages import (
         comparison, data_control, league_lab, market_lab, match_center, model_lab,
         overview, prediction_history, projections, radars, research_lab, standings,
@@ -37,14 +38,17 @@ def page_specs() -> tuple[PageSpec, ...]:
         PageSpec("Match Center", "Fixture Explorer", ":material/sports_soccer:", "match-center", match_center.render, ("fixtures", "forecasts", "score_matrices")),
         PageSpec("Match Center", "Fixture Radars", ":material/radar:", "radars", radars.render, ("radars",)),
         PageSpec("Match Center", "Prediction History", ":material/history:", "prediction-history", prediction_history.render, ("forecast_ledger",)),
+        PageSpec("Match Center", "Match analytics", ":material/analytics:", "match-analytics", render_match_page),
         PageSpec("Teams", "Team Command Center", ":material/shield:", "teams", team_center.render, ("team_snapshots",)),
         PageSpec("Teams", "Comparison Studio", ":material/compare_arrows:", "comparison", comparison.render, ("team_snapshots",)),
+        PageSpec("Teams", "Team analytics", ":material/analytics:", "team-analytics", render_team_page),
         PageSpec("League", "Live Table", ":material/leaderboard:", "standings", standings.render, ("fixtures",)),
         PageSpec("League", "Season Projections", ":material/finance:", "projections", projections.render, ("season_simulations",)),
         PageSpec("League", "League Laboratory", ":material/query_stats:", "league-lab", league_lab.render),
         PageSpec("Models & Data", "Model Lab", ":material/model_training:", "model-lab", model_lab.render, ("model_registry",)),
         PageSpec("Models & Data", "Research Lab", ":material/science:", "research-lab", research_lab.render, ("research_experiments", "research_metrics", "research_calibration")),
         PageSpec("Models & Data", "Data Control Room", ":material/fact_check:", "data-control", data_control.render),
+        PageSpec("Models & Data", "Feature validation", ":material/science:", "feature-validation", render_model_page),
         PageSpec("Models & Data", "Market Lab", ":material/candlestick_chart:", "market-lab", market_lab.render, ("odds_snapshots",), ("odds",)),
     )
 

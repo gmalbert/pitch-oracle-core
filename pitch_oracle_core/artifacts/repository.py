@@ -70,7 +70,8 @@ class ArtifactRepository:
             primary_payload = json.loads(primary.read_text(encoding="utf-8"))
             if primary_payload.get("schema_version") == 3:
                 typed = load_manifest(primary)
-                validate_artifact_files(typed, root)
+                failures = validate_artifact_files(typed, root, allow_optional_failures=True)
+                primary_payload["optional_artifact_failures"] = failures
             manifest = primary_payload
         except (FileNotFoundError, json.JSONDecodeError, TypeError, ValueError, RuntimeError) as exc:
             primary_error = exc
@@ -87,7 +88,8 @@ class ArtifactRepository:
                     candidate.relative_to(root)
                     payload = json.loads(candidate.read_text(encoding="utf-8"))
                     typed = load_manifest(candidate)
-                    validate_artifact_files(typed, root)
+                    failures = validate_artifact_files(typed, root, allow_optional_failures=True)
+                    payload["optional_artifact_failures"] = failures
                 except (FileNotFoundError, json.JSONDecodeError, TypeError, ValueError, RuntimeError):
                     continue
                 if not anchor_league or not anchor_edition:
@@ -121,6 +123,23 @@ class ArtifactRepository:
             descriptors = {item["name"]: item for item in artifacts}
         else:
             descriptors = {name: {"name": name, **item} for name, item in artifacts.items()}
+        for name in manifest.get("optional_artifact_failures", {}):
+            descriptors.pop(name, None)
+        # v2 consumers retain their required contract and degrade optional data only.
+        if manifest.get("schema_version") != 3:
+            from .manifest import file_digest
+            for name, item in list(descriptors.items()):
+                if item.get("required", True):
+                    continue
+                try:
+                    artifact = (root / item["path"]).resolve()
+                    artifact.relative_to(root)
+                    digest, size = file_digest(artifact)
+                    if item.get("sha256") != digest or item.get("bytes") != size:
+                        raise RuntimeError("Optional artifact failed integrity validation")
+                except (OSError, ValueError, RuntimeError) as exc:
+                    manifest.setdefault("optional_artifact_failures", {})[name] = str(exc)
+                    descriptors.pop(name)
         return cls(root, descriptors, manifest)
 
     def path(self, name: str) -> Path:

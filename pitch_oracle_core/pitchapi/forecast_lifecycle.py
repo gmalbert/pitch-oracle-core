@@ -129,6 +129,13 @@ def capture_hourly_forecasts(inputs: pd.DataFrame, snapshots: pd.DataFrame, *, a
                 row["revision_label"] = previous.revision_label
             row.update(zip(("p_home", "p_draw", "p_away"), map(float, probabilities[0])))
             row["feature_observed_at"] = fixture.get("feature_observed_at")
+            # Persist the context actually used at issue time for review in the app.
+            from pitch_oracle_core.features.families import LINEUP_COLUMNS, KEEPER_COLUMNS
+            for side in ("home", "away"):
+                for field in (*LINEUP_COLUMNS, *KEEPER_COLUMNS, "keeper_id"):
+                    name = f"{side}_{field}"
+                    if name in fixture:
+                        row[name] = fixture[name]
             revision = pd.DataFrame([row])
             validate_forecast_ledger(revision)
             ledger = append_revisions(revision, destination, keys=["fixture_id", "issued_at", "model_fingerprint"])
