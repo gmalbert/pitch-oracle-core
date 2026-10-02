@@ -60,7 +60,7 @@ class ObservationCache:
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
-    def store(self, key: str, endpoint: str, payload: Any, *, now: datetime) -> RawObservation:
+    def store(self, key: str, endpoint: str, payload: Any, *, now: datetime, preserve_observation: bool = False) -> RawObservation:
         now = utc_timestamp(now)
         previous = self.latest(key)
         digest = self._digest(payload)
@@ -69,7 +69,7 @@ class ObservationCache:
             raise ValueError("Cache key cannot be reused for a different endpoint")
         if previous is not None and now < previous.checked_at:
             raise ValueError("Cache observation clock moved backwards")
-        if previous is not None and digest == previous.sha256:
+        if previous is not None and digest == previous.sha256 and not preserve_observation:
             pointer = json.loads((directory / "latest.json").read_text(encoding="utf-8"))
             pointer["checked_at"] = now.isoformat()
             atomic_json(directory / "latest.json", pointer)
@@ -92,6 +92,7 @@ class ObservationCache:
         now: datetime | None = None, completed_at: datetime | None = None,
         refresh: bool = False, maximum_age: timedelta = timedelta(days=1),
         correction_days: int = 7, allow_cached_on_error: bool = True,
+        preserve_observation: bool = False,
     ) -> RawObservation:
         now = utc_timestamp(now or datetime.now(timezone.utc))
         previous = self.latest(key)
@@ -108,7 +109,7 @@ class ObservationCache:
             if previous is None or not allow_cached_on_error:
                 raise
             return replace(previous, error_code=getattr(exc, "code", type(exc).__name__))
-        return self.store(key, endpoint, payload, now=now)
+        return self.store(key, endpoint, payload, now=now, preserve_observation=preserve_observation)
 
     def revisions(self, key: str, *, as_of: datetime | None = None) -> list[RawObservation]:
         directory = self._directory(key)

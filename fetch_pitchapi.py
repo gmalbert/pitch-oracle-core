@@ -108,114 +108,24 @@ def _flatten_team_advanced(team: dict) -> dict:
 
 
 def fetch_pitchapi(
-    league: LeagueConfig | str = "epl",
-    *,
-    seasons: list[str] | None = None,
-    with_shots: bool = True,
-    with_advanced: bool = False,
-    with_momentum: bool = False,
-    with_players: bool = False,
-    with_lineups: bool = False,
-    output_dir: str | Path | None = None,
-    api_key: str | None = None,
+    league: LeagueConfig | str = "epl", *, seasons: list[str] | None = None,
+    with_shots: bool = True, with_advanced: bool = False,
+    with_momentum: bool = False, with_players: bool = False,
+    with_lineups: bool = False, with_network: bool = False,
+    with_heatmaps: bool = False, output_dir: str | Path | None = None,
+    api_key: str | None = None, status: str = "all", optional: bool = True,
+    refresh: bool = False,
 ) -> dict[str, pd.DataFrame]:
-    """Fetch PitchAPI data for a league and write CSVs under ``output_dir``.
-
-    Returns a dict of frame name -> DataFrame, and writes each to
-    ``data_files/pitchapi_*.csv`` (tab-separated, matching repo convention).
-    """
-    config = get_league_config(league) if isinstance(league, str) else league
-    league_id = pitchapi_league_id(config)
-    key = api_key or os.getenv("PITCH_API_KEY")
-    if not key:
-        raise RuntimeError("PITCH_API_KEY is required to fetch PitchAPI data")
-    active_output = Path(output_dir or os.getenv("PITCH_ORACLE_DATA_DIR", config.data_dir_name))
-    active_output.mkdir(parents=True, exist_ok=True)
-    client = PitchAPIClient(api_key=key)
-
-    # Resolve the league seasons from the catalogue when not provided.
-    if seasons is None:
-        all_leagues = client.leagues()
-        league_record = next((lg for lg in all_leagues if lg["id"] == league_id), None)
-        if league_record is None:
-            raise PitchAPIError(f"league {league_id} not found in PitchAPI catalogue")
-        seasons = list(league_record.get("seasons", []))
-
-    matches: list[dict] = []
-    shots: list[dict] = []
-    match_xg: list[dict] = []
-    advanced: list[dict] = []
-    momentum: list[dict] = []
-    players: list[dict] = []
-    lineups: list[dict] = []
-    for season in seasons:
-        season_matches = client.league_matches(league_id, season)
-        print(f"  {season}: {len(season_matches)} matches")
-        for match in season_matches:
-            match_id = match["id"]
-            matches.append({
-                "match_id": match_id,
-                "league_id": league_id,
-                "date": match.get("date"),
-                "time_utc": match.get("time_utc"),
-                "status": match.get("status"),
-                "home_team_id": match.get("home_team", {}).get("id"),
-                "home_team": match.get("home_team", {}).get("name"),
-                "away_team_id": match.get("away_team", {}).get("id"),
-                "away_team": match.get("away_team", {}).get("name"),
-                "score_home": match.get("score_home"),
-                "score_away": match.get("score_away"),
-                "round_name": match.get("round_name"),
-            })
-            if match.get("status") != "finished":
-                continue
-            if with_shots:
-                periods = client.get_cached_or_fetch(
-                    active_output, f"shots_{match_id}", f"/matches/{match_id}/shots"
-                ).get("periods", [])
-                shots.extend(_shot_rows(match, periods))
-                match_xg.append(_match_xg_row(match, periods, config.team_aliases))
-            if with_advanced:
-                team_data = client.get_cached_or_fetch(
-                    active_output, f"advanced_{match_id}", f"/matches/{match_id}/advanced"
-                )
-                if team_data:
-                    for team in team_data.get("teams", []):
-                        row = _flatten_team_advanced(team)
-                        row["match_id"] = match_id
-                        advanced.append(row)
-            if with_momentum:
-                points = client.get_cached_or_fetch(
-                    active_output, f"momentum_{match_id}", f"/matches/{match_id}/momentum"
-                ).get("points", [])
-                for point in points:
-                    momentum.append({"match_id": match_id, **point})
-            if with_players:
-                for line in client.get_cached_or_fetch(
-                    active_output, f"players_{match_id}", f"/matches/{match_id}/players"
-                ):
-                    players.append({"match_id": match_id, **line})
-            if with_lineups:
-                lineups_data = client.get_cached_or_fetch(
-                    active_output, f"lineups_{match_id}", f"/matches/{match_id}/lineups"
-                )
-                if lineups_data:
-                    lineups.append({"match_id": match_id, **lineups_data})
-
-    frames = {
-        "pitchapi_matches": pd.DataFrame(matches),
-        "pitchapi_shots": pd.DataFrame(shots),
-        "pitchapi_match_xg": pd.DataFrame(match_xg),
-        "pitchapi_advanced_team": pd.DataFrame(advanced),
-        "pitchapi_momentum": pd.DataFrame(momentum),
-        "pitchapi_players": pd.DataFrame(players),
-        "pitchapi_lineups": pd.DataFrame(lineups),
-    }
-    for name, frame in frames.items():
-        if frame.empty:
-            continue
-        frame.to_csv(active_output / f"{name}.csv", sep="\t", index=False)
-    return frames
+    """Compatibility entry point for the versioned package ingestion pipeline."""
+    from pitch_oracle_core.pitchapi.ingest import refresh_pitchapi
+    return refresh_pitchapi(
+        league, seasons=seasons, output_dir=output_dir, api_key=api_key,
+        with_shots=with_shots, with_advanced=with_advanced,
+        with_momentum=with_momentum, with_players=with_players,
+        with_lineups=with_lineups, with_network=with_network,
+        with_heatmaps=with_heatmaps, status=status, optional=optional,
+        refresh=refresh,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -223,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--league", default=os.getenv("PITCH_ORACLE_LEAGUE", "epl"))
     parser.add_argument("--data-dir", default=os.getenv("PITCH_ORACLE_DATA_DIR", "data_files"))
     parser.add_argument("--seasons", nargs="*", default=None,
-                        help="Season codes to fetch; defaults to all available.")
+                        help="Season codes to fetch; defaults to the latest available season.")
     parser.add_argument("--shots", action="store_true", default=True,
                         help="Fetch per-shot data and match-level xG (default).")
     parser.add_argument("--no-shots", dest="shots", action="store_false")
@@ -231,6 +141,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--momentum", action="store_true")
     parser.add_argument("--players", action="store_true")
     parser.add_argument("--lineups", action="store_true")
+    parser.add_argument("--network", action="store_true")
+    parser.add_argument("--heatmaps", action="store_true")
+    parser.add_argument("--status", choices=["played", "upcoming", "all"], default="all")
+    parser.add_argument("--strict", action="store_true", help="Fail on transport/schema failures instead of retaining optional cache")
+    parser.add_argument("--refresh", action="store_true", help="Explicitly recheck completed payloads outside the correction window")
     args = parser.parse_args(argv)
     frames = fetch_pitchapi(
         args.league,
@@ -240,6 +155,8 @@ def main(argv: list[str] | None = None) -> int:
         with_momentum=args.momentum,
         with_players=args.players,
         with_lineups=args.lineups,
+        with_network=args.network, with_heatmaps=args.heatmaps,
+        status=args.status, optional=not args.strict, refresh=args.refresh,
         output_dir=args.data_dir,
     )
     for name, frame in frames.items():
