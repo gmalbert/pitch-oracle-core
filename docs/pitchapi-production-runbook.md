@@ -111,6 +111,13 @@ evidence ID, with an intact hash and an issue no more than two hours old. Their
 historical prediction logs are retained. The default release uses their existing
 baseline forecasts.
 
+Generated `data_files`, `models` and `precomputed` paths use Git `-text`
+attributes. Their integrity records hash the exact stored bytes; checkout must
+preserve those bytes on Linux and Windows. After changing these attributes on an
+existing consumer, rebuild the optional index and required manifest, then stage
+the artifact paths with `git add --renormalize`. Verify their hashes against the
+staged files before publishing the coherent bundle.
+
 ## Promotion and rollback
 
 Evaluate A0, individual A1–A8 families and an explicitly selected A9 combination
@@ -143,5 +150,8 @@ installed wheel. All 440 executable Python files compiled.
 
 One pre-existing file, `ligue-1/docs/streamlit_ligue_odds_app.py`, contains
 Markdown prose and fails Python compilation. It is documentation rather than
-an imported application module and was left unchanged. GitHub secret setup and
-post-push CI must be confirmed independently of these local checks.
+an imported application module and was left unchanged. Six shared-core CI jobs
+passed on Linux, Windows and macOS with Python 3.12/3.13; all seven consumer PR
+CI checks passed after reconciling main. Review and CI links are in the
+[rollout review record](pitchapi-rollout-prs.md). GitHub secret setup remains
+pending explicit user approval.

@@ -46,7 +46,8 @@ documents. Unchecked work remains part of the requested implementation.
 - [x] Full Python tests and py_compile across core and affected consumers.
 - [x] Playwright runtime validation of all seven apps and optional-data states.
 - [x] Real-provider pilot mapping/coverage and walk-forward evidence where credentials permit.
-- [ ] Narrow commits with detailed Markdown descriptions; reviewed pushes/PR checks.
+- [x] Narrow commits with detailed Markdown descriptions; branches pushed and draft PRs attached.
+- [x] All seven consumer post-push CI checks passed after reconciling main.
 - [ ] Protected GitHub Actions PitchAPI secret configured in each consumer (approval requested).
 
 ## Current evidence
@@ -54,8 +55,8 @@ documents. Unchecked work remains part of the requested implementation.
 Initial inspection: no local PitchAPI or lineup observation archive. Ligue 1
 contains 920 odds rows at six capture times (July 7–12, 2026). This is not an
 archive sufficient to replay all planned forecast stages across all leagues.
-The existing `.venv312` has Python 3.12.14 and Streamlit 1.61.1; declared test
-and pipeline dependencies are being restored before baseline validation.
+The existing `.venv312` has Python 3.12.14 and Streamlit 1.61.1. The declared
+test and pipeline dependencies were restored and checked before validation.
 
 
 ## October 2 local rollout evidence
@@ -84,4 +85,11 @@ and pipeline dependencies are being restored before baseline validation.
 Operational commands, data contracts, release limits and rollback instructions
 are in [the production runbook](pitchapi-production-runbook.md). The original
 planning documents remain reference material; implementation choices follow the
-user's accepted decisions recorded above.
+user’s accepted decisions recorded above.
+
+All eight draft reviews and automated validation links are in the
+[rollout review record](pitchapi-rollout-prs.md). Consumer merge conflicts were
+resolved against current main; upstream source fixes were retained. Exact staged
+artifact hashes were verified after disabling checkout newline normalization for
+generated data/model/cache paths. Protected secret configuration is the remaining
+activation step awaiting user approval.
