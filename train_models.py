@@ -373,6 +373,17 @@ def train_and_save_models():
     with open(path.join(MODELS_DIR, 'model_metadata.json'), 'w', encoding='utf-8') as f:
         json.dump(metadata, f, indent=2)
 
+    from pitch_oracle_core.features.families import FeatureFamilyConfig
+    from pitch_oracle_core.pitchapi.model_bundle import train_model_bundles
+    family_config = FeatureFamilyConfig.load(
+        path.join(DATA_DIR, 'pitchapi_feature_config.json'),
+        league_key=os.getenv('PITCH_ORACLE_LEAGUE', 'epl'),
+    )
+    train_model_bundles(
+        pd.read_csv(path.join(DATA_DIR, 'combined_historical_data_with_calculations_new.csv'), sep='\t'),
+        configuration=family_config, models_dir=MODELS_DIR,
+    )
+
     total_time = time.time() - start_time
     print("All models trained and saved successfully!")
     print(f"Total training time: {total_time:.2f}s")

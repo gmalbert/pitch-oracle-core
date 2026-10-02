@@ -103,7 +103,15 @@ def precompute_data():
     state_sources = {}
     feature_set = set(feature_names)
     for feature in feature_names:
-        if feature.startswith("Home"):
+        if feature.startswith("home_"):
+            counterpart = "away_" + feature[len("home_"):]
+            fixture_role = "home"
+            home_column, away_column = feature, counterpart
+        elif feature.startswith("away_"):
+            counterpart = "home_" + feature[len("away_"):]
+            fixture_role = "away"
+            home_column, away_column = counterpart, feature
+        elif feature.startswith("Home"):
             counterpart = "Away" + feature[len("Home"):]
             fixture_role = "home"
             home_column, away_column = feature, counterpart

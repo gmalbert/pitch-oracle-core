@@ -93,6 +93,8 @@ def build_upcoming_feature_matrix(
     historical: pd.DataFrame,
     upcoming: pd.DataFrame,
     contract: FeatureContract,
+    *,
+    as_of: pd.Timestamp | None = None,
 ) -> np.ndarray:
     """Build live features in the exact order used during model training.
 
@@ -139,13 +141,22 @@ def build_upcoming_feature_matrix(
             (match.get(column) for column in ("kickoff_utc", "MatchDate") if pd.notna(match.get(column))),
             None,
         )
-        cutoff = pd.to_datetime(cutoff_value, utc=True, errors="coerce")
+        kickoff = pd.to_datetime(cutoff_value, utc=True, errors="coerce")
+        issued = as_of if as_of is not None else match.get("as_of")
+        cutoff = pd.to_datetime(issued, utc=True, errors="raise") if issued is not None and pd.notna(issued) else kickoff
+        if issued is not None and (pd.isna(kickoff) or cutoff >= kickoff):
+            raise ValueError("Forecast as_of must precede fixture kickoff")
         if contract.state_sources and pd.isna(cutoff):
             raise ValueError("Explicit state lookup requires every upcoming fixture kickoff")
         available_history = (
             ordered_history.loc[ordered_history._contract_date < cutoff]
             if contract.state_sources else ordered_history
         )
+        if "fixture_id" in available_history and pd.notna(match.get("fixture_id")):
+            available_history = available_history.loc[available_history.fixture_id != match.fixture_id]
+        if "feature_observed_at" in available_history:
+            observed = pd.to_datetime(available_history.feature_observed_at, utc=True, errors="raise")
+            available_history = available_history.loc[observed.isna() | (observed <= cutoff)]
         values: list[float] = []
         for feature in contract.feature_names:
             value = match.get(feature)
@@ -243,6 +254,9 @@ def production_probabilities(
     *,
     production_candidate: str,
     models_dir: str | Path = "models",
+    league_key: str | None = None,
+    data_dir: str | Path | None = None,
+    as_of: pd.Timestamp | None = None,
 ) -> np.ndarray:
     """Return 1X2 probabilities from the audit-selected production candidate.
 
@@ -251,11 +265,48 @@ def production_probabilities(
     goals model over completed history only.  Anything else is refused so the
     audit gate and the shipped cache can never disagree about the model.
     """
+    if league_key is not None and data_dir is not None:
+        from .features.families import FeatureFamilyConfig
+        configuration = FeatureFamilyConfig.load(Path(data_dir) / "pitchapi_feature_config.json", league_key=league_key)
+        if configuration.enabled_families:
+            import json
+            from .pitchapi.model_bundle import load_bundle, predict_with_fallback
+            from .features.forecast_inputs import build_forecast_inputs
+            from .leagues import get_league_config
+            cutoff = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp.now(tz="UTC")
+            feature_failure = False
+            try:
+                inputs = build_forecast_inputs(historical, upcoming, config=get_league_config(league_key), as_of=cutoff, data_dir=data_dir)
+            except (OSError, ValueError, KeyError):
+                feature_failure = True
+                inputs = build_forecast_inputs(historical, upcoming, config=get_league_config(league_key), as_of=cutoff)
+            baseline = load_bundle(Path(models_dir) / "pitchapi_baseline.pkl", league_key=league_key)
+            try:
+                promoted = load_bundle(Path(models_dir) / "pitchapi_promoted.pkl", league_key=league_key)
+                if promoted.families != configuration.enabled_families or promoted.evidence_id != configuration.evidence_id:
+                    promoted = None
+            except (OSError, ValueError, pickle.UnpicklingError):
+                promoted = None
+            health_path = Path(data_dir) / "pitchapi_health.json"
+            try:
+                health = json.loads(health_path.read_text(encoding="utf-8")) if health_path.exists() else {}
+            except (OSError, ValueError):
+                health = {}
+            if feature_failure:
+                promoted = None
+            probabilities, metadata = predict_with_fallback(historical, inputs, baseline=baseline, promoted=promoted, capability_health=health, as_of=cutoff)
+            if feature_failure:
+                metadata["fallback_reason"] = "provider_feature_build_failed"
+            for column in metadata:
+                if column != "fixture_id":
+                    upcoming[column] = metadata[column].to_numpy()
+            upcoming["as_of"] = cutoff.isoformat()
+            return probabilities
     if production_candidate == "no_odds":
         model_path = Path(models_dir) / "ensemble_model.pkl"
         with model_path.open("rb") as stream:
             model = pickle.load(stream)
-        matrix = build_upcoming_feature_matrix(historical, upcoming, contract)
+        matrix = build_upcoming_feature_matrix(historical, upcoming, contract, as_of=as_of)
         probabilities = model.predict_proba(matrix)
         if probabilities.shape != (len(upcoming), 3):
             raise ValueError(
