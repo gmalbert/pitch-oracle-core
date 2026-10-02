@@ -1,8 +1,8 @@
 """Fetch PitchAPI football data: match results, per-shot xG, and advanced analytics.
 
 PitchAPI is a read-only REST API (https://pitchapi.dev). All endpoints are
-covered matches (no live or scheduled fixtures are exposed), so this fetcher
-backfills by league season and caches per-match JSON under ``data_files/``.
+historical matches and upcoming fixtures. The package client separates pre-match
+observations from post-match analytics and preserves immutable raw revisions.
 
 Auth: ``PITCH_API_KEY`` env var, sent as ``X-API-KEY`` on every request.
 """
@@ -14,11 +14,9 @@ import json
 import os
 import sys
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import pandas as pd
-import requests
 
 from pitch_oracle_core.config import LeagueConfig
 from pitch_oracle_core.leagues import get_league_config
@@ -30,91 +28,7 @@ DEFAULT_CACHE_DIR = "pitchapi_cache"
 MATCH_EPOCH_SECONDS = 30 * 60  # per-match payloads are immutable once finished
 
 
-class PitchAPIError(RuntimeError):
-    """Raised for HTTP or envelope errors from the PitchAPI service."""
-
-
-@dataclass
-class PitchAPIClient:
-    """Thin client for the PitchAPI REST interface."""
-
-    api_key: str
-    base_url: str = BASE_URL
-    session: requests.Session = field(default_factory=requests.Session)
-    _cache_dir: Path | None = None
-
-    def __post_init__(self) -> None:
-        self.session.headers.update({"X-API-KEY": self.api_key})
-
-    def _request(self, path: str, *, params: dict | None = None) -> dict:
-        url = f"{self.base_url}/{path.lstrip('/')}"
-        response = self.session.get(url, params=params, timeout=30)
-        if response.status_code == 429:
-            retry_after = response.headers.get("Retry-After")
-            if retry_after:
-                time.sleep(float(retry_after))
-                return self._request(path, params=params)
-        response.raise_for_status()
-        payload = response.json()
-        if "error" in payload:
-            code = payload["error"].get("code", "UNKNOWN")
-            message = payload["error"].get("message", "")
-            raise PitchAPIError(f"{code}: {message}")
-        return payload["data"]
-
-    def leagues(self) -> list[dict]:
-        return self._request("/leagues").get("leagues", [])
-
-    def league_matches(self, league_id: str, season: str) -> list[dict]:
-        data = self._request(f"/leagues/{league_id}/matches", params={"season": season})
-        return data.get("matches", [])
-
-    def match_shots(self, match_id: str) -> list[dict]:
-        data = self._request(f"/matches/{match_id}/shots")
-        return data.get("periods", [])
-
-    def match_advanced(self, match_id: str) -> dict | None:
-        try:
-            return self._request(f"/matches/{match_id}/advanced")
-        except PitchAPIError as exc:
-            if "ANALYTICS_UNAVAILABLE" in str(exc):
-                return None
-            raise
-
-    def match_momentum(self, match_id: str) -> list[dict]:
-        data = self._request(f"/matches/{match_id}/momentum")
-        return data.get("points", [])
-
-    def match_players(self, match_id: str) -> list[dict]:
-        return self._request(f"/matches/{match_id}/players")
-
-    def match_lineups(self, match_id: str) -> dict | None:
-        try:
-            return self._request(f"/matches/{match_id}/lineups")
-        except PitchAPIError as exc:
-            if "ANALYTICS_UNAVAILABLE" in str(exc):
-                return None
-            raise
-
-    def cache_dir(self, base: Path) -> Path:
-        if self._cache_dir is None:
-            self._cache_dir = base / DEFAULT_CACHE_DIR
-            self._cache_dir.mkdir(parents=True, exist_ok=True)
-        return self._cache_dir
-
-    def get_cached_or_fetch(
-        self, base: Path, cache_key: str, path: str, *, params: dict | None = None
-    ) -> dict:
-        """Return cached JSON when fresh, else fetch and cache it."""
-        cache_dir = self.cache_dir(base)
-        cache_file = cache_dir / f"{cache_key}.json"
-        if cache_file.exists():
-            age = time.time() - cache_file.stat().st_mtime
-            if age < MATCH_EPOCH_SECONDS:
-                return json.loads(cache_file.read_text(encoding="utf-8"))
-        data = self._request(path, params=params)
-        cache_file.write_text(json.dumps(data), encoding="utf-8")
-        return data
+from pitch_oracle_core.pitchapi.client import PitchAPIClient, PitchAPIError
 
 
 def pitchapi_league_id(config: LeagueConfig) -> str:
