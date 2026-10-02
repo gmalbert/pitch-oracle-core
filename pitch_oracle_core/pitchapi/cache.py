@@ -47,11 +47,12 @@ class ObservationCache:
         if Path(filename).name != filename or not filename.endswith(".json"):
             raise ValueError("Invalid cache revision path")
         raw = json.loads((directory / filename).read_text(encoding="utf-8"))
-        digest = self._digest(raw["payload"])
+        payload = self._payload(raw)
+        digest = self._digest(payload)
         if digest != raw["sha256"] or raw["schema_version"] != INTEGRATION_SCHEMA_VERSION:
             raise ValueError("Raw cache hash or schema mismatch")
         return RawObservation(
-            raw["payload"], utc_timestamp(raw["fetched_at"]),
+            payload, utc_timestamp(raw["fetched_at"]),
             utc_timestamp(pointer["checked_at"]), raw["endpoint"], digest, True,
         )
 
@@ -59,6 +60,17 @@ class ObservationCache:
     def _digest(payload: Any) -> str:
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+    def _payload(self, raw: dict) -> Any:
+        if "payload" in raw:
+            return raw["payload"]
+        digest = raw.get("payload_sha256", "")
+        if not re.fullmatch(r"[0-9a-f]{64}", digest) or digest != raw.get("sha256"):
+            raise ValueError("Invalid raw payload reference")
+        payload = json.loads((self.root / "payloads" / f"{digest}.json").read_text(encoding="utf-8"))
+        if self._digest(payload) != digest:
+            raise ValueError("Raw payload hash mismatch")
+        return payload
 
     def store(self, key: str, endpoint: str, payload: Any, *, now: datetime, preserve_observation: bool = False) -> RawObservation:
         now = utc_timestamp(now)
@@ -80,6 +92,12 @@ class ObservationCache:
             "fetched_at": now.isoformat(), "endpoint": endpoint,
             "http_status": 200, "sha256": digest, "payload": payload,
         }
+        if preserve_observation:
+            blob = self.root / "payloads" / f"{digest}.json"
+            if not blob.exists():
+                atomic_json(blob, payload)
+            raw.pop("payload")
+            raw["payload_sha256"] = digest
         # The revision is written once and never altered, even after provider corrections.
         destination = directory / revision
         if not destination.exists():
@@ -94,6 +112,7 @@ class ObservationCache:
         correction_days: int = 7, allow_cached_on_error: bool = True,
         preserve_observation: bool = False,
     ) -> RawObservation:
+        fixed_clock = now is not None
         now = utc_timestamp(now or datetime.now(timezone.utc))
         previous = self.latest(key)
         if maximum_age.total_seconds() <= 0 or correction_days < 0:
@@ -109,7 +128,8 @@ class ObservationCache:
             if previous is None or not allow_cached_on_error:
                 raise
             return replace(previous, error_code=getattr(exc, "code", type(exc).__name__))
-        return self.store(key, endpoint, payload, now=now, preserve_observation=preserve_observation)
+        captured_at = now if fixed_clock else datetime.now(timezone.utc)
+        return self.store(key, endpoint, payload, now=captured_at, preserve_observation=preserve_observation)
 
     def revisions(self, key: str, *, as_of: datetime | None = None) -> list[RawObservation]:
         directory = self._directory(key)
@@ -121,8 +141,9 @@ class ObservationCache:
             raw = json.loads(path.read_text(encoding="utf-8"))
             observed = utc_timestamp(raw["fetched_at"])
             if cutoff is None or observed <= cutoff:
-                digest = self._digest(raw["payload"])
-                if digest != raw["sha256"]:
+                payload = self._payload(raw)
+                digest = self._digest(payload)
+                if digest != raw["sha256"] or raw["schema_version"] != INTEGRATION_SCHEMA_VERSION:
                     raise ValueError("Raw cache revision hash mismatch")
-                observations.append(RawObservation(raw["payload"], observed, observed, raw["endpoint"], digest, True))
+                observations.append(RawObservation(payload, observed, observed, raw["endpoint"], digest, True))
         return observations

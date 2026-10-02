@@ -98,8 +98,8 @@ def normalize_shots(payload: dict, *, fixture_id: str, match_id: str, team_ids: 
                 raise ValueError("Expected goals cannot be negative")
             player = shot.get("player") or {}
             player_id = player.get("id")
-            event = str(shot.get("event_type", ""))
-            row = {**_lineage(fixture_id, match_id, observed_at), "shot_id": shot.get("id"), "team_id": team_ids[provider_team], "opponent_id": next(value for key, value in team_ids.items() if key != provider_team), "provider_team_id": provider_team, "player_id": f"pitchapi:{player_id}" if player_id else None, "provider_player_id": player_id, "player_name": player.get("name"), "minute": number(shot.get("minute")), "minute_added": number(shot.get("minute_added")), "period": period.get("period"), "x": x, "y": y, "expected_goals": xg, "expected_goals_on_target": xgot, "is_goal": event.casefold() == "goal", "body_part": shot.get("shot_type"), "coordinate_frame": "acting_ltr"}
+            event = shot.get("event_type")
+            row = {**_lineage(fixture_id, match_id, observed_at), "shot_id": shot.get("id"), "team_id": team_ids[provider_team], "opponent_id": next(value for key, value in team_ids.items() if key != provider_team), "provider_team_id": provider_team, "player_id": f"pitchapi:{player_id}" if player_id else None, "provider_player_id": player_id, "player_name": player.get("name"), "minute": number(shot.get("minute")), "minute_added": number(shot.get("minute_added")), "period": period.get("period"), "x": x, "y": y, "expected_goals": xg, "expected_goals_on_target": xgot, "is_goal": str(event).casefold() == "goal" if event else None, "body_part": shot.get("shot_type"), "coordinate_frame": "acting_ltr"}
             row.update({name: shot.get(name) for name in ("situation", "shot_type", "event_type")})
             row.update({name: number(shot.get(name)) for name in ("goal_crossed_y", "goal_crossed_z")})
             row.update({name: boolean(shot.get(name)) for name in ("is_on_target", "is_own_goal", "is_blocked", "is_inside_box")})
@@ -175,8 +175,12 @@ def normalize_network(payload: dict, *, fixture_id: str, match_id: str, team_ids
         shared = {**_lineage(fixture_id, match_id, observed_at), "team_id": team_ids[provider_id], "centralization": number(network.get("centralization")), "window_until_seconds": number((network.get("window") or {}).get("until_seconds")), "coordinate_frame": "acting_ltr"}
         for node in network.get("nodes", []):
             player = node.get("player") or {}
+            if not player.get("id"):
+                raise ValueError("Passing network node requires player identity")
             rows.append({**shared, "kind": "node", "player_id": f"pitchapi:{player.get('id')}", "player_name": player.get("name"), **{key: number(node.get(key)) for key in ("avg_x", "avg_y", "passes", "passes_received", "degree", "strength", "betweenness", "clustering")}})
         for edge in network.get("edges", []):
+            if not (edge.get("from") or {}).get("id") or not (edge.get("to") or {}).get("id"):
+                raise ValueError("Passing network edge requires player identities")
             rows.append({**shared, "kind": "edge", "from_player_id": f"pitchapi:{(edge.get('from') or {}).get('id')}", "to_player_id": f"pitchapi:{(edge.get('to') or {}).get('id')}", "passes": number(edge.get("passes"))})
     return pd.DataFrame(rows)
 

@@ -150,3 +150,26 @@ def test_cache_detects_corruption_and_path_escape(tmp_path):
 def test_postkickoff_lineup_is_stored_but_not_eligible():
     row = LineupSnapshotRow("fx:test", "m_test", "tm:test", "p_test", "Player", None, True, LineupStatus.CONFIRMED, NOW, NOW)
     assert not row.prematch_eligible
+
+
+def test_hourly_observations_share_payload_but_keep_every_capture(tmp_path):
+    cache = ObservationCache(tmp_path)
+    for hour in range(3):
+        cache.store("lineups_one", "lineups", {"home": {"confirmed": False}}, now=NOW + timedelta(hours=hour), preserve_observation=True)
+    assert len(cache.revisions("lineups_one")) == 3
+    assert len(list((tmp_path / "payloads").glob("*.json"))) == 1
+    assert cache.latest("lineups_one").observed_at == NOW + timedelta(hours=2)
+    blob = next((tmp_path / "payloads").glob("*.json"))
+    blob.write_text('{"home":{"confirmed":true}}')
+    with pytest.raises(ValueError, match="hash"):
+        cache.revisions("lineups_one")
+
+
+def test_live_observation_is_timestamped_after_response_arrives(tmp_path):
+    from datetime import timezone
+    received = []
+    def loader():
+        received.append(datetime.now(timezone.utc))
+        return {"response": "arrived"}
+    observation = ObservationCache(tmp_path).fetch("lineups_live", "lineups", loader)
+    assert observation.observed_at >= received[0]

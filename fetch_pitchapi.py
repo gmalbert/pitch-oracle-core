@@ -75,8 +75,11 @@ def _match_xg_row(match: dict, periods: list[dict], aliases: dict[str, str] | No
     for period in periods:
         for shot in period.get("shots", []):
             team = shot.get("team_id", "")
+            if team not in {home_team_id, away_team_id}:
+                raise ValueError("Shot team does not belong to fixture")
             side = "home" if team == home_team_id else "away"
-            total[side] += float(shot.get("expected_goals") or 0.0)
+            value = shot.get("expected_goals")
+            total[side] += float(value) if value is not None else float("nan")
     aliases = aliases or {}
     return {
         "match_id": match.get("id"),
