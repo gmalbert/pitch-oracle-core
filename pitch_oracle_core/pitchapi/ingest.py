@@ -31,6 +31,8 @@ ARTIFACTS = {
     "pitchapi_response_revisions": ".parquet",
 }
 
+SYSTEMIC_FAILURES = {"TRANSPORT_ERROR", "INTERNAL_SERVER_ERROR", "HTTP_ERROR", "RATE_LIMIT_EXCEEDED", "RATE_LIMITED", "UNAUTHORIZED", "FORBIDDEN", "INVALID_API_KEY"}
+
 
 def pitchapi_league_id(config: LeagueConfig) -> str:
     if not config.sources.pitchapi or not config.sources.pitchapi_league_id:
@@ -184,6 +186,8 @@ def refresh_pitchapi(
                         break
                     if observation.error_code:
                         failure(observation.error_code, match_id=match_id, endpoint=endpoint)
+                        if observation.error_code in SYSTEMIC_FAILURES:
+                            run["refresh_aborted"] = True
                     lineage = {"fixture_id": fixture_id, "match_id": match_id, "team_ids": team_ids, "observed_at": observation.observed_at}
                     if name == "shots":
                         normalized = normalize_shots(observation.payload, **lineage)
@@ -223,6 +227,11 @@ def refresh_pitchapi(
                     run["capabilities"].setdefault(name, {"successes": 0, "failures": 0})["failures"] += 1
                     if not optional and getattr(exc, "code", None) not in {"ANALYTICS_UNAVAILABLE", "RESOURCE_NOT_FOUND"}:
                         raise
+                    if getattr(exc, "code", None) in SYSTEMIC_FAILURES or getattr(exc, "status_code", None) in {401, 403, 429} or (getattr(exc, "status_code", None) or 0) >= 500:
+                        run["refresh_aborted"] = True
+                        break
+                if run.get("refresh_aborted"):
+                    break
             if "shots" in fetched:
                 observation = fetched["shots"]
                 normalized = normalize_shots(observation.payload, fixture_id=fixture_id, match_id=match_id, team_ids=team_ids, observed_at=observation.observed_at)
@@ -232,7 +241,7 @@ def refresh_pitchapi(
                 # Compatibility CSV keeps name/date keys expected by older consumer xG paths.
                 xg = summary[["fixture_id", "home_xg", "away_xg", "observed_at"]].assign(match_id=match_id, match_date=match.match_date, HomeTeam=config.team_aliases.get(match.home_team, match.home_team), AwayTeam=config.team_aliases.get(match.away_team, match.away_team))
                 frames["pitchapi_match_xg"] = pd.concat([frames["pitchapi_match_xg"], xg], ignore_index=True).drop_duplicates("fixture_id", keep="last")
-            if run["status"] == "partial":
+            if run["status"] == "partial" or run.get("refresh_aborted"):
                 break
         if summary_rows:
             frames["pitchapi_match_shot_features"] = append_revisions(pd.concat(summary_rows, ignore_index=True), data_dir / "pitchapi_match_shot_features.csv", keys=["fixture_id", "observed_at"])
@@ -242,6 +251,8 @@ def refresh_pitchapi(
         if not optional:
             raise
     finally:
+        if run.get("refresh_aborted"):
+            run["status"] = "unavailable"
         run["requests_used"] = requests_used
         run["request_budget"] = request_budget
         atomic_json(absence_path, absences)

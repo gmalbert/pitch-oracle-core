@@ -23,30 +23,31 @@ documents. Unchecked work remains part of the requested implementation.
 
 ## Required delivery and evidence
 
-- [ ] Package client, bounded retries, typed HTTP errors, SDK-independent interface.
-- [ ] Immutable versioned raw cache, seven-day correction policy, append-only lineups.
-- [ ] Canonical fixture reconciliation, aliases, ambiguity and reversed-team audit.
-- [ ] Versioned matches, shots, shot summaries, advanced-team and player artifacts.
-- [ ] Momentum, passing networks, player/team heatmaps and coordinate semantics.
-- [ ] Observation-aware team ledger, rolling/EWM shot and advanced features.
-- [ ] Player strength, role scaling, minute/recency weighting, transfers and priors.
-- [ ] Goalkeeper exposure, non-own goals, shrinkage and sample coverage.
-- [ ] Per-team lineup selection, continuity, availability, bench and keeper context.
-- [ ] Initial/24-hour/lineup/closing forecast lifecycle with explicit as-of replay.
-- [ ] Independent baseline model, model contract fingerprints, deterministic fallback.
-- [ ] Style interactions and walk-forward feature-family ablations.
-- [ ] Bootstrap uncertainty, calibration, subgroup and missingness reports.
-- [ ] Capability-specific health, schedules discrepancy and latency audits.
-- [ ] Reusable CI secret, historical refresh, hourly snapshot jobs, optional failure.
-- [ ] Manifest metadata, lazy filtered artifact reads, compatibility validation.
-- [ ] Match Center pre/post-match analytics, Team Center trends, diagnostics.
-- [ ] All seven consumer configurations and pipeline integration.
-- [ ] Updated assessment, data contracts, production runbook and rollback procedure.
-- [ ] Meaningful synthetic chronology, failure and replay regression tests.
-- [ ] Full Python tests and py_compile across core and affected consumers.
-- [ ] Playwright runtime validation of all seven apps and optional-data states.
-- [ ] Real-provider pilot mapping/coverage and walk-forward evidence where credentials permit.
+- [x] Package client, bounded retries, typed HTTP errors, SDK-independent interface.
+- [x] Immutable versioned raw cache, seven-day correction policy, append-only lineups.
+- [x] Canonical fixture reconciliation, aliases, ambiguity and reversed-team audit.
+- [x] Versioned matches, shots, shot summaries, advanced-team and player artifacts.
+- [x] Momentum, passing networks, player/team heatmaps and coordinate semantics.
+- [x] Observation-aware team ledger, rolling/EWM shot and advanced features.
+- [x] Player strength, role scaling, minute/recency weighting, transfers and priors.
+- [x] Goalkeeper exposure, non-own goals, shrinkage and sample coverage.
+- [x] Per-team lineup selection, continuity, availability, bench and keeper context.
+- [x] Initial/24-hour/lineup/closing forecast lifecycle with explicit as-of replay.
+- [x] Independent baseline model, model contract fingerprints, deterministic fallback.
+- [x] Style interactions and walk-forward feature-family ablations.
+- [x] Bootstrap uncertainty, calibration, subgroup and missingness reports.
+- [x] Capability-specific health, schedules discrepancy and latency audits.
+- [x] Reusable CI secret, historical refresh, hourly snapshot jobs, optional failure.
+- [x] Manifest metadata, lazy filtered artifact reads, compatibility validation.
+- [x] Match Center pre/post-match analytics, Team Center trends, diagnostics.
+- [x] All seven consumer configurations and pipeline integration.
+- [x] Updated assessment, data contracts, production runbook and rollback procedure.
+- [x] Meaningful synthetic chronology, failure and replay regression tests.
+- [x] Full Python tests and py_compile across core and affected consumers.
+- [x] Playwright runtime validation of all seven apps and optional-data states.
+- [x] Real-provider pilot mapping/coverage and walk-forward evidence where credentials permit.
 - [ ] Narrow commits with detailed Markdown descriptions; reviewed pushes/PR checks.
+- [ ] Protected GitHub Actions PitchAPI secret configured in each consumer (approval requested).
 
 ## Current evidence
 
@@ -55,3 +56,32 @@ contains 920 odds rows at six capture times (July 7–12, 2026). This is not an
 archive sufficient to replay all planned forecast stages across all leagues.
 The existing `.venv312` has Python 3.12.14 and Streamlit 1.61.1; declared test
 and pipeline dependencies are being restored before baseline validation.
+
+
+## October 2 local rollout evidence
+
+- Implemented package pipelines, complete response corrections, bounded and
+  resumable backfills, independent fallback, all eight feature families,
+  observation-aware replay and analytics across seven consumers.
+- Refreshed primary histories and schedules. The five shared consumers passed
+  their baseline chronology/model release gates. La Liga and Ligue 1 retain
+  history from 2015 and use a separate strict PitchAPI mart.
+- All seven consumer test suites passed. The final core full suite passed 421 tests,
+  including the schedule and outage regressions.
+- Seven real-payload pilots passed 63 Playwright checks. The seven actual apps
+  passed 84 checks across production pages, match sections, mobile, team
+  analytics and feature validation. Replaced the standalone apps' blocked iframe
+  navigation with native browser timezone context.
+- Built version 1.5.0 and imported its pipelines from an isolated wheel install.
+  Compiled 440 executable Python sources. A pre-existing Ligue 1 `.py`
+  documentation file contains Markdown and is not executable; it was preserved.
+- Live current-season captures and strict ablation reports are published in the
+  local consumer data directories. Mapping gates remain below threshold and
+  historical captures do not prove past availability. No enhanced model is
+  promoted. Actual hourly refreshes had zero fixtures in the next-seven-day
+  window and therefore fabricated no issue records.
+
+Operational commands, data contracts, release limits and rollback instructions
+are in [the production runbook](pitchapi-production-runbook.md). The original
+planning documents remain reference material; implementation choices follow the
+user's accepted decisions recorded above.

@@ -312,6 +312,8 @@ def production_probabilities(
             for column in contract.feature_names:
                 if column in inputs:
                     upcoming[column] = inputs[column].to_numpy()
+            upcoming["fixture_id"] = inputs.fixture_id.to_numpy()
+            upcoming["kickoff_utc"] = inputs.kickoff_utc.to_numpy()
             upcoming["as_of"] = cutoff.isoformat()
             as_of = cutoff
     if production_candidate == "no_odds":

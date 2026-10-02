@@ -155,6 +155,18 @@ def test_cached_endpoint_absence_expires_without_sliding_the_clock(tmp_path):
     assert client._request.call_count == 2
 
 
+def test_systemic_endpoint_outage_aborts_remaining_requests_and_retains_valid_observations(tmp_path):
+    client = transport()
+    first = run(tmp_path, client)
+    client._request.reset_mock()
+    client._request.side_effect = PitchAPIError("RATE_LIMIT_EXCEEDED", status_code=429)
+    second = run(tmp_path, client, now=NOW + timedelta(days=1))
+    assert client._request.call_count == 1
+    pd.testing.assert_frame_equal(first["pitchapi_shots"], second["pitchapi_shots"], check_dtype=False)
+    report = json.loads((tmp_path / "pitchapi_provider_run.json").read_text())
+    assert report["status"] == "unavailable" and report["refresh_aborted"]
+
+
 def test_football_data_historical_clock_is_independent_of_weather_timezone():
     config = get_league_config("eredivisie")
     raw = pd.DataFrame([{"Date": "2022-08-05", "Time": "19:00", "HomeTeam": "Heerenveen", "AwayTeam": "Sparta Rotterdam"}])
