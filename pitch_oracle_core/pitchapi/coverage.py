@@ -60,7 +60,7 @@ def build_coverage_report(data_dir: str | Path, *, league_key: str, now: datetim
             audit = audit.loc[audit.provider_match_id.astype(str).isin(provider_ids)]
         canonical_ids = set(matches.fixture_id.dropna().astype(str))
         summary, advanced, players, lineups, network, momentum = [frame.loc[frame.fixture_id.astype(str).isin(canonical_ids)] if not frame.empty else frame for frame in (summary, advanced, players, lineups, network, momentum)]
-    report = {"provider": "pitchapi", "schema_version": INTEGRATION_SCHEMA_VERSION, "league_key": league_key, "checked_at": now.isoformat(), "last_run_status": run.get("status", "unavailable"), "capabilities": {}, "mapping": {}, "latency_minutes": {}, "lineup_lead_minutes": {}, "missingness": {}}
+    report = {"provider": "pitchapi", "schema_version": INTEGRATION_SCHEMA_VERSION, "league_key": league_key, "checked_at": now.isoformat(), "last_run_status": run.get("status", "unavailable"), "capabilities": {}, "mapping": {"gate_passed": False, "coverage": 0.0, "expected": 0, "mapped": 0}, "latency_minutes": {}, "lineup_lead_minutes": {}, "missingness": {}}
     if not audit.empty:
         counts = audit.status.value_counts().to_dict()
         total = len(audit)

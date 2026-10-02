@@ -18,6 +18,11 @@ def build_forecast_inputs(historical: pd.DataFrame, upcoming: pd.DataFrame, *, c
         return upcoming.copy()
     history = canonical_fixture_frame(historical, config)
     targets = canonical_fixture_frame(upcoming, config, input_timezone=config.sources.upcoming_timezone).assign(as_of=cutoff)
+    if data_dir is not None:
+        from pitch_oracle_core.fixtures.registry import assign_fixture_ids
+        registry = Path(data_dir) / "canonical_fixture_registry.json"
+        history = assign_fixture_ids(history, registry, league_key=config.key, persist=False)
+        targets = assign_fixture_ids(targets, registry, league_key=config.key, persist=False)
     if (targets.kickoff_lower_bound_utc <= cutoff).any():
         raise ValueError("Upcoming forecast inputs must predate known kickoff lower bounds")
     required = {"FullTimeHomeGoals", "FullTimeAwayGoals", "FullTimeResult"}

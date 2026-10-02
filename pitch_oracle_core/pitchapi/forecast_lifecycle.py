@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import pickle
 from pathlib import Path
 from typing import Callable
 
@@ -144,14 +145,16 @@ def capture_hourly_forecasts(inputs: pd.DataFrame, snapshots: pd.DataFrame, *, a
     return ledger, errors
 
 
-def refresh_lineup_forecasts(*, league_key: str, data_dir: str | Path = "data_files", models_dir: str | Path = "models", now: pd.Timestamp | None = None, refresh_provider: bool = True) -> dict:
+def refresh_lineup_forecasts(*, league_key: str, data_dir: str | Path = "data_files", models_dir: str | Path = "models", historical_file: str = "combined_historical_data_with_calculations_new.csv", now: pd.Timestamp | None = None, refresh_provider: bool = True) -> dict:
     cutoff = pd.Timestamp(now) if now is not None else pd.Timestamp.now(tz="UTC")
     config, root = get_league_config(league_key), Path(data_dir)
     if refresh_provider:
-        refresh_pitchapi(config, output_dir=root, with_shots=False, with_lineups=True, status="upcoming", now=cutoff.to_pydatetime())
+        refresh_pitchapi(config, output_dir=root, with_shots=False, with_lineups=True, status="upcoming", now=cutoff.to_pydatetime() if now is not None else None)
+        if now is None:
+            cutoff = pd.Timestamp.now(tz="UTC")
     health = build_coverage_report(root, league_key=league_key, now=cutoff.to_pydatetime())
     atomic_json(root / "pitchapi_health.json", health)
-    history = read_frame(root / "combined_historical_data_with_calculations_new.csv")
+    history = read_frame(root / historical_file)
     upcoming = read_frame(root / "upcoming_fixtures.csv")
     if upcoming.empty:
         existing = read_frame(root / "pitchapi_forecast_revisions.parquet")
@@ -178,7 +181,7 @@ def refresh_lineup_forecasts(*, league_key: str, data_dir: str | Path = "data_fi
             promoted = load_bundle(Path(models_dir) / "pitchapi_promoted.pkl", league_key=league_key)
             if promoted.families != configuration.enabled_families or promoted.evidence_id != configuration.evidence_id:
                 promoted = None
-        except (OSError, ValueError):
+        except (OSError, ValueError, pickle.UnpicklingError, EOFError, AttributeError, TypeError):
             pass
     def predict(frame):
         probabilities, metadata = predict_with_fallback(history, frame, baseline=baseline, promoted=promoted, capability_health=health, as_of=cutoff)
@@ -198,9 +201,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--league", required=True)
     parser.add_argument("--data-dir", default="data_files")
     parser.add_argument("--models-dir", default="models")
+    parser.add_argument("--historical-file", default="combined_historical_data_with_calculations_new.csv")
     parser.add_argument("--offline", action="store_true", help="Use stored observations without requesting the provider")
     args = parser.parse_args(argv)
-    report = refresh_lineup_forecasts(league_key=args.league, data_dir=args.data_dir, models_dir=args.models_dir, refresh_provider=not args.offline)
+    report = refresh_lineup_forecasts(league_key=args.league, data_dir=args.data_dir, models_dir=args.models_dir, historical_file=args.historical_file, refresh_provider=not args.offline)
     print(f"Hourly forecast refresh: {report['status']}, {len(report['errors'])} errors")
     return 1 if report["errors"] else 0
 

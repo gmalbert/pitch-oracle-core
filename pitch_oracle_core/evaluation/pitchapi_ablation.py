@@ -211,14 +211,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--league", required=True)
     parser.add_argument("--data-dir", default="data_files")
     parser.add_argument("--output-dir", default="precomputed/model-audit")
+    parser.add_argument("--historical-file", default="combined_historical_data_with_calculations_new.csv")
     parser.add_argument("--retrospective", action="store_true")
     parser.add_argument("--selected-families", nargs="*", choices=FAMILIES, default=[])
     args = parser.parse_args(argv)
     root, destination = Path(args.data_dir), Path(args.output_dir)
-    frame = read_frame(root / "combined_historical_data_with_calculations_new.csv")
+    frame = read_frame(root / args.historical_file)
     health = json.loads((root / "pitchapi_health.json").read_text()) if (root / "pitchapi_health.json").exists() else {}
     report, predictions = evaluate_pitchapi_families(frame, league_key=args.league, strict=not args.retrospective, mapping_gate=bool(health.get("mapping", {}).get("gate_passed")), selected_families=tuple(args.selected_families))
     atomic_json(destination / "pitchapi_ablation.json", report)
+    atomic_json(root / "pitchapi_ablation.json", report)
     write_frame(predictions, destination / "pitchapi_ablation_predictions.parquet")
     if report["release_gate"]["promotion_passed"]:
         configuration = FeatureFamilyConfig(args.league, tuple(report["release_gate"]["enabled_families"]), report["evidence_id"])

@@ -45,7 +45,9 @@ def load_canonical_fixtures(data_dir: Path, config: LeagueConfig) -> pd.DataFram
             if name == "combined_historical_data.csv" and not source.empty:
                 source = completed_match_rows(source, date_column="Date" if "Date" in source else "MatchDate", result_column="FTR" if "FTR" in source else "FullTimeResult")
             if not source.empty:
-                frames.append(canonical_fixture_frame(source, config, input_timezone=config.sources.historical_timezone if name == "combined_historical_data.csv" else config.sources.upcoming_timezone))
+                canonical = canonical_fixture_frame(source, config, input_timezone=config.sources.historical_timezone if name == "combined_historical_data.csv" else config.sources.upcoming_timezone)
+                from pitch_oracle_core.fixtures.registry import assign_fixture_ids
+                frames.append(assign_fixture_ids(canonical, data_dir / "canonical_fixture_registry.json", league_key=config.key))
     if not frames:
         raise ValueError("Canonical historical/upcoming fixtures are required before PitchAPI mapping")
     result = pd.concat(frames, ignore_index=True)
@@ -65,6 +67,7 @@ def refresh_pitchapi(
 ) -> dict[str, pd.DataFrame]:
     config = get_league_config(league) if isinstance(league, str) else league
     league_id = pitchapi_league_id(config)
+    fixed_clock = now is not None
     now = utc_timestamp(now or datetime.now(timezone.utc))
     data_dir = Path(output_dir or os.getenv("PITCH_ORACLE_DATA_DIR", config.data_dir_name))
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -101,10 +104,11 @@ def refresh_pitchapi(
         raw_matches = {}
         for season in seasons:
             matches = client.league_matches(league_id, season, status=status)
-            cache.store(f"schedules_{league_id}_{season.replace('/', '-')}_{status}", f"/leagues/{league_id}/matches?season={season}&status={status}", {"matches": matches}, now=now, preserve_observation=True)
+            captured_at = now if fixed_clock else datetime.now(timezone.utc)
+            cache.store(f"schedules_{league_id}_{season.replace('/', '-')}_{status}", f"/leagues/{league_id}/matches?season={season}&status={status}", {"matches": matches}, now=captured_at, preserve_observation=True)
             if not matches:
                 continue
-            match_frames.append(normalize_matches(matches, league_id=league_id, season=season, observed_at=now))
+            match_frames.append(normalize_matches(matches, league_id=league_id, season=season, observed_at=captured_at))
             raw_matches.update({str(item["id"]): item for item in matches})
         if not match_frames:
             atomic_json(health_path, run)
@@ -146,7 +150,7 @@ def refresh_pitchapi(
                 path = f"/matches/{match_id}/{endpoint}"
                 try:
                     observation = cache.fetch(
-                        f"{name}_{match_id}", path, lambda path=path: client._request(path), now=now,
+                        f"{name}_{match_id}", path, lambda path=path: client._request(path), now=now if fixed_clock else None,
                         completed_at=completion if name != "lineup_snapshots" else None,
                         maximum_age=timedelta(hours=1) if name == "lineup_snapshots" else timedelta(days=1),
                         refresh=refresh,

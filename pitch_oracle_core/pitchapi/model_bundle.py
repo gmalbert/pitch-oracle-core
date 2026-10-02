@@ -184,9 +184,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--league", required=True)
     parser.add_argument("--data-dir", default="data_files")
     parser.add_argument("--models-dir", default="models")
+    parser.add_argument("--historical-file", default="combined_historical_data_with_calculations_new.csv")
     args = parser.parse_args(argv)
     configuration = FeatureFamilyConfig.load(Path(args.data_dir) / "pitchapi_feature_config.json", league_key=args.league)
-    records = train_model_bundles(read_frame(Path(args.data_dir) / "combined_historical_data_with_calculations_new.csv"), configuration=configuration, models_dir=args.models_dir)
+    records = train_model_bundles(read_frame(Path(args.data_dir) / args.historical_file), configuration=configuration, models_dir=args.models_dir)
     print(f"Trained {len(records)} independent model bundles for {args.league}")
     return 0
 
