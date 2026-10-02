@@ -13,6 +13,7 @@ from pitch_oracle_core.fixtures.canonical import canonical_fixture_frame
 from pitch_oracle_core.fixtures.provider_mapping import reconcile_fixtures
 from pitch_oracle_core.leagues import get_league_config
 from pitch_oracle_core.features.shot_profile import build_match_shot_features
+from pitch_oracle_core.features import completed_match_rows
 from .cache import ObservationCache, atomic_json
 from .client import PitchAPIClient, PitchAPIError
 from .contracts import INTEGRATION_SCHEMA_VERSION, utc_timestamp
@@ -41,8 +42,10 @@ def load_canonical_fixtures(data_dir: Path, config: LeagueConfig) -> pd.DataFram
         path = data_dir / name
         if path.exists():
             source = read_frame(path)
+            if name == "combined_historical_data.csv" and not source.empty:
+                source = completed_match_rows(source, date_column="Date" if "Date" in source else "MatchDate", result_column="FTR" if "FTR" in source else "FullTimeResult")
             if not source.empty:
-                frames.append(canonical_fixture_frame(source, config))
+                frames.append(canonical_fixture_frame(source, config, input_timezone=config.sources.historical_timezone if name == "combined_historical_data.csv" else config.sources.upcoming_timezone))
     if not frames:
         raise ValueError("Canonical historical/upcoming fixtures are required before PitchAPI mapping")
     result = pd.concat(frames, ignore_index=True)
@@ -92,7 +95,8 @@ def refresh_pitchapi(
             if record is None:
                 raise PitchAPIError("LEAGUE_NOT_FOUND", "Configured league is absent from catalogue")
             # Operational default is the current season; explicitly request all seasons for a backfill.
-            seasons = list(record.get("seasons", []))[:1]
+            available_seasons = list(record.get("seasons", []))
+            seasons = [max(available_seasons, key=lambda value: int(str(value).split("/")[0]))] if available_seasons else []
         match_frames = []
         raw_matches = {}
         for season in seasons:
@@ -109,7 +113,9 @@ def refresh_pitchapi(
         incoming["league_key"] = config.key
         mapped, audit = reconcile_fixtures(incoming, canonical, aliases=config.team_aliases, mapped_at=now, max_hours=6.0)
         write_frame(audit, data_dir / "pitchapi_fixture_audit.csv")
-        write_frame(mapped, data_dir / "provider_fixture_map.csv")
+        existing_mapping = read_frame(data_dir / "provider_fixture_map.csv")
+        mapping_index = pd.concat([existing_mapping, mapped], ignore_index=True).drop_duplicates("provider_match_id", keep="last") if not existing_mapping.empty else mapped
+        write_frame(mapping_index, data_dir / "provider_fixture_map.csv")
         unmatched = audit.loc[audit.status != "mapped"]
         for item in unmatched.itertuples(index=False):
             failure(f"FIXTURE_{item.status.upper()}", match_id=item.provider_match_id)

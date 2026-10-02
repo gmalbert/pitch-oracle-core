@@ -58,7 +58,7 @@ def test_unversioned_xg_never_populates_historical_replay(tmp_path: Path):
 
 
 def test_raw_provider_and_metadata_columns_cannot_enter_models():
-    frame = pd.DataFrame(columns=["EloDiff", "home_xg", "home_ppda", "xt_total", "provider_schema_version", "home_player_rating", "observed_at", "home_xt_for_ewm10", "home_keeper_strength", "home_lineup_attack_delta"])
+    frame = pd.DataFrame(columns=["EloDiff", "home_xg", "HxG", "AxG", "FTHG", "home_ppda", "xt_total", "provider_schema_version", "home_player_rating", "observed_at", "home_xt_for_ewm10", "home_keeper_strength", "home_lineup_attack_delta"])
     assert no_odds_feature_columns(frame) == ["EloDiff"]
     assert no_odds_feature_columns(frame, enabled_families=("advanced_team", "goalkeeper")) == ["EloDiff", "home_xt_for_ewm10", "home_keeper_strength"]
     assert not is_prematch_feature("home_player_rating")

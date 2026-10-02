@@ -97,6 +97,8 @@ _EXCLUDED_COLUMNS = {
     "kickoff_lower_bound_utc",
     "home_xg", "away_xg", "xg_home", "xg_away",
     "home_lineup_status", "away_lineup_status", "home_keeper_id", "away_keeper_id",
+    "HxG", "AxG", "FTHG", "FTAG", "FTR", "HTHG", "HTAG", "HTR",
+    "HS", "AS", "HST", "AST", "HC", "AC", "HF", "AF", "HY", "AY", "HR", "AR",
 }
 
 

@@ -14,7 +14,7 @@ def read_frame(path: str | Path) -> pd.DataFrame:
         return pd.read_parquet(path)
     with path.open(encoding="utf-8-sig") as stream:
         header = stream.readline()
-    return pd.read_csv(path, sep="\t" if "\t" in header else ",")
+    return pd.read_csv(path, sep="\t" if "\t" in header else ",", low_memory=False)
 
 
 def write_frame(frame: pd.DataFrame, path: str | Path) -> None:

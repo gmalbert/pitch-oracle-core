@@ -52,7 +52,7 @@ def prepare_historical_features(
     if missing:
         raise ValueError(f"Historical source misses: {sorted(missing)}")
     frame = completed_match_rows(frame, result_column="FullTimeResult").copy()
-    frame = canonical_fixture_frame(frame, config)
+    frame = canonical_fixture_frame(frame, config, input_timezone=config.sources.historical_timezone)
     xg_frame = pd.DataFrame()
     if xg_source is not None:
         xg_path = Path(xg_source)

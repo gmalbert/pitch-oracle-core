@@ -17,7 +17,7 @@ def build_forecast_inputs(historical: pd.DataFrame, upcoming: pd.DataFrame, *, c
     if upcoming.empty:
         return upcoming.copy()
     history = canonical_fixture_frame(historical, config)
-    targets = canonical_fixture_frame(upcoming, config).assign(as_of=cutoff)
+    targets = canonical_fixture_frame(upcoming, config, input_timezone=config.sources.upcoming_timezone).assign(as_of=cutoff)
     if (targets.kickoff_lower_bound_utc <= cutoff).any():
         raise ValueError("Upcoming forecast inputs must predate known kickoff lower bounds")
     required = {"FullTimeHomeGoals", "FullTimeAwayGoals", "FullTimeResult"}

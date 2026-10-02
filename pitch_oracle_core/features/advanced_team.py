@@ -26,6 +26,7 @@ METRICS = (
         "direct_speed", "passes_per_sequence",
     )),
     LedgerMetric("xg", "xg", "for_against", "xg"),
+    LedgerMetric("finishing_vs_expectation", "finishing_vs_expectation", family="xg"),
     LedgerMetric("xgot", "xgot", "for_against", "shot_profile"),
     *(LedgerMetric(name, name, family="shot_profile") for name in (
         "shots", "shots_on_target", "xg_per_shot", "xgot_minus_xg", "inside_box_share",
@@ -115,6 +116,11 @@ def build_advanced_team_features(
         observed_times = []
         if history is not None:
             eligible = history.loc[(history.fixture_id != target.fixture_id) & (history.source_kickoff_utc < cutoff) & (history.observed_at <= cutoff)]
+            if eligible.empty:
+                row.update({name: 0.0 for name in names if "coverage" in name})
+                row["feature_observed_at"] = None
+                output.append(row)
+                continue
             eligible = eligible.sort_values("observed_at", kind="stable").drop_duplicates(["fixture_id", "team_id"], keep="last")
             for side in ("home", "away"):
                 team_id = getattr(target, f"{side}_team_id")

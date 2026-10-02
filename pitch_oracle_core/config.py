@@ -17,6 +17,8 @@ class DataSourceConfig:
     pitchapi: bool = False
     weather: bool = True
     weather_timezone: str = "Europe/London"
+    historical_timezone: str = "Europe/London"
+    upcoming_timezone: str = "America/New_York"
     referee: bool = False
     injuries: bool = False
     live_odds_providers: tuple[str, ...] = ()

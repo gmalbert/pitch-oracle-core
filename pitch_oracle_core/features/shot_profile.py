@@ -7,7 +7,7 @@ import pandas as pd
 
 from pitch_oracle_core.pitchapi.normalize import boolean
 
-SHOT_METRICS = ("xg", "xgot", "shots", "shots_on_target", "xg_per_shot", "xgot_per_sot", "xgot_minus_xg", "inside_box_share", "set_piece_xg_share", "open_play_xg_share", "blocked_rate", "header_share", "chance_concentration")
+SHOT_METRICS = ("xg", "xgot", "shots", "shots_on_target", "xg_per_shot", "xgot_per_sot", "xgot_minus_xg", "inside_box_share", "set_piece_xg_share", "open_play_xg_share", "blocked_rate", "header_share", "chance_concentration", "finishing_vs_expectation")
 
 
 def _numeric(frame: pd.DataFrame, field: str) -> pd.Series:
@@ -69,6 +69,7 @@ def shot_profile_for_team(shots: pd.DataFrame, *, available: bool = True) -> dic
         "open_play_xg_share": _ratio(float(xg.loc[open_play].sum()), total_xg) if known_situations else np.nan,
         "header_share": _ratio(float(body.fillna("").astype(str).str.casefold().str.contains("head").sum()), n) if body.notna().all() else np.nan,
         "chance_concentration": chance_concentration(xg),
+        "finishing_vs_expectation": float(_flags(shots, "is_goal").eq(True).sum()) - total_xg if _flags(shots, "is_goal").notna().all() else np.nan,
     }
     for source, target in (("is_inside_box", "inside_box_share"), ("is_blocked", "blocked_rate")):
         flags = _flags(shots, source)

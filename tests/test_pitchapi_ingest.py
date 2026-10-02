@@ -115,3 +115,44 @@ def test_canonical_historical_identity_is_independent_of_row_order_and_added_row
     expanded = canonical_fixture_frame(pd.concat([raw.assign(Date="2026-09-20"), raw]), config)
     assert first.iloc[0].fixture_id == expanded.iloc[1].fixture_id
     assert first.iloc[0].home_team_id == "eredivisie:ajax"
+
+
+def test_latest_season_does_not_depend_on_catalogue_order(tmp_path):
+    client = transport()
+    client.leagues.return_value = [{"id": "l_4H43wr", "seasons": ["2021/2022", "2026/2027", "2025/2026"]}]
+    refresh_pitchapi("eredivisie", output_dir=tmp_path, canonical=canonical(), client=client, now=NOW)
+    client.league_matches.assert_called_once_with("l_4H43wr", "2026/2027", status="all")
+
+
+def test_football_data_historical_clock_is_independent_of_weather_timezone():
+    config = get_league_config("eredivisie")
+    raw = pd.DataFrame([{"Date": "2022-08-05", "Time": "19:00", "HomeTeam": "Heerenveen", "AwayTeam": "Sparta Rotterdam"}])
+    result = canonical_fixture_frame(raw, config, input_timezone=config.sources.historical_timezone)
+    assert result.iloc[0].kickoff_utc == pd.Timestamp("2022-08-05T18:00:00Z")
+
+
+def test_legacy_eastern_schedule_clock_preserves_provider_utc_kickoff():
+    config = get_league_config("laliga")
+    raw = pd.DataFrame([{"Date": "2026-08-15", "Time": "01:30 PM ET", "HomeTeam": "Deportivo Alavés", "AwayTeam": "Getafe CF", "Status": "SCHEDULED"}])
+    result = canonical_fixture_frame(raw, config, input_timezone=config.sources.upcoming_timezone)
+    assert result.iloc[0].kickoff_utc == pd.Timestamp("2026-08-15T17:30:00Z")
+    assert result.iloc[0].status == "scheduled"
+
+
+def test_reconciliation_normalizes_large_candidate_table_once(monkeypatch):
+    import pitch_oracle_core.fixtures.provider_mapping as module
+    count = 0
+    original = module.normalized_name
+    def observed(value):
+        nonlocal count
+        count += 1
+        return original(value)
+    monkeypatch.setattr(module, "normalized_name", observed)
+    size = 150
+    times = pd.date_range("2026-01-01", periods=size, freq="D", tz="UTC")
+    canonical_frame = pd.DataFrame({"fixture_id": [f"fx:{i}" for i in range(size)], "home_display_name": "Ajax", "away_display_name": "PSV", "kickoff_utc": times})
+    provider = pd.DataFrame({"match_id": [f"provider:{i}" for i in range(size)], "home_team": "Ajax", "away_team": "PSV", "kickoff_utc": times})
+    mapped, audit = module.reconcile_fixtures(provider, canonical_frame, aliases={"Amsterdam Football Club": "Ajax"})
+    assert len(mapped) == size
+    assert audit.status.eq("mapped").all()
+    assert count <= size * 4 + 4
