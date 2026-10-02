@@ -29,11 +29,11 @@ def test_models_have_independent_widths_roundtrip_and_baseline_fallback(tmp_path
     assert baseline.model.n_features_in_ == 1
     assert promoted.model.n_features_in_ == 2
     upcoming, cutoff = live(baseline)
-    probabilities, metadata = predict_with_fallback(training(), upcoming, baseline=baseline, promoted=promoted, capability_health={"capabilities": {"advanced_team": {"status": "stale"}}}, as_of=cutoff)
+    probabilities, metadata = predict_with_fallback(training(), upcoming, baseline=baseline, promoted=promoted, capability_health={"checked_at": cutoff.isoformat(), "mapping": {"gate_passed": True}, "capabilities": {"advanced_team": {"status": "stale"}}}, as_of=cutoff)
     assert metadata.iloc[0].fallback_reason == "advanced_team_stale"
     assert metadata.iloc[0].model_id == baseline.model_id
     np.testing.assert_allclose(probabilities, baseline.model.predict_proba(np.array([[15]], dtype=np.float32)))
-    probabilities, metadata = predict_with_fallback(training(), upcoming, baseline=baseline, promoted=promoted, capability_health={"capabilities": {"advanced_team": {"status": "available"}}}, as_of=cutoff)
+    probabilities, metadata = predict_with_fallback(training(), upcoming, baseline=baseline, promoted=promoted, capability_health={"checked_at": cutoff.isoformat(), "mapping": {"gate_passed": True}, "capabilities": {"advanced_team": {"status": "available"}}}, as_of=cutoff)
     assert metadata.iloc[0].model_id == promoted.model_id
     assert not metadata.iloc[0].fallback_used
     np.testing.assert_allclose(probabilities, promoted.model.predict_proba(np.array([[15, 1.5]], dtype=np.float32)))
@@ -44,7 +44,7 @@ def test_missing_provider_values_use_fitted_baseline_not_column_dropping():
     promoted = fit_bundle(training(), league_key="eredivisie", families=("advanced_team",), evidence_id="run", model_id="promoted")
     upcoming, cutoff = live(baseline)
     upcoming["home_xt_for_ewm10"] = np.nan
-    _, metadata = predict_with_fallback(training(), upcoming, baseline=baseline, promoted=promoted, capability_health={"capabilities": {"advanced_team": {"status": "available"}}}, as_of=cutoff)
+    _, metadata = predict_with_fallback(training(), upcoming, baseline=baseline, promoted=promoted, capability_health={"checked_at": cutoff.isoformat(), "mapping": {"gate_passed": True}, "capabilities": {"advanced_team": {"status": "available"}}}, as_of=cutoff)
     assert metadata.iloc[0].fallback_reason == "advanced_team_missing_required_features"
     assert metadata.iloc[0].model_id == baseline.model_id
 
@@ -65,7 +65,7 @@ def test_late_feature_lineage_selects_baseline():
     promoted = fit_bundle(training(), league_key="eredivisie", families=("advanced_team",), evidence_id="run")
     upcoming, cutoff = live(baseline)
     upcoming["feature_observed_at"] = cutoff + pd.Timedelta(hours=1)
-    _, metadata = predict_with_fallback(training(), upcoming, baseline=baseline, promoted=promoted, capability_health={"capabilities": {"advanced_team": {"status": "available"}}}, as_of=cutoff)
+    _, metadata = predict_with_fallback(training(), upcoming, baseline=baseline, promoted=promoted, capability_health={"checked_at": cutoff.isoformat(), "mapping": {"gate_passed": True}, "capabilities": {"advanced_team": {"status": "available"}}}, as_of=cutoff)
     assert metadata.iloc[0].fallback_reason == "missing_or_late_feature_lineage"
 
 
@@ -84,3 +84,15 @@ def test_live_football_state_includes_latest_completed_game_and_excludes_future(
 def test_family_without_eligible_training_history_cannot_be_promoted():
     with pytest.raises(ValueError, match="lacks eligible"):
         fit_bundle(training().assign(home_xt_for_ewm10=np.nan), league_key="eredivisie", families=("advanced_team",), evidence_id="run")
+
+
+def test_mapping_gate_and_stale_audit_force_independent_baseline():
+    baseline = fit_bundle(training(), league_key="eredivisie")
+    promoted = fit_bundle(training(), league_key="eredivisie", families=("advanced_team",), evidence_id="run")
+    upcoming, cutoff = live(baseline)
+    health = {"checked_at": cutoff.isoformat(), "mapping": {"gate_passed": False}, "capabilities": {"advanced_team": {"status": "available"}}}
+    _, metadata = predict_with_fallback(training(), upcoming, baseline=baseline, promoted=promoted, capability_health=health, as_of=cutoff)
+    assert metadata.iloc[0].fallback_reason == "fixture_mapping_not_validated"
+    health.update(checked_at=(cutoff - pd.Timedelta(days=2)).isoformat(), mapping={"gate_passed": True})
+    _, metadata = predict_with_fallback(training(), upcoming, baseline=baseline, promoted=promoted, capability_health=health, as_of=cutoff)
+    assert metadata.iloc[0].fallback_reason == "capability_audit_stale_or_missing"

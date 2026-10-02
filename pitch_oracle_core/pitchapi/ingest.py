@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import os
+import json
 from pathlib import Path
 from typing import Callable
 import pandas as pd
@@ -19,6 +20,7 @@ from .client import PitchAPIClient, PitchAPIError
 from .contracts import INTEGRATION_SCHEMA_VERSION, utc_timestamp
 from .normalize import normalize_matches, normalize_shots, normalize_team_data, normalize_player_data, normalize_lineups, normalize_network, normalize_heatmaps
 from .storage import read_frame, write_frame, append_revisions
+from .revisions import with_removals
 
 ARTIFACTS = {
     "pitchapi_matches": ".csv", "pitchapi_shots": ".parquet",
@@ -26,6 +28,7 @@ ARTIFACTS = {
     "pitchapi_advanced_team": ".parquet", "pitchapi_player_match": ".parquet",
     "pitchapi_momentum": ".parquet", "pitchapi_network": ".parquet",
     "pitchapi_heatmaps": ".parquet", "pitchapi_lineup_snapshots": ".parquet",
+    "pitchapi_response_revisions": ".parquet",
 }
 
 
@@ -64,8 +67,11 @@ def refresh_pitchapi(
     with_lineups: bool = False, with_momentum: bool = False, with_network: bool = False,
     with_heatmaps: bool = False, status: str = "all", optional: bool = True,
     refresh: bool = False, now: datetime | None = None,
+    request_budget: int = 500,
 ) -> dict[str, pd.DataFrame]:
     config = get_league_config(league) if isinstance(league, str) else league
+    if request_budget < 1:
+        raise ValueError("Request budget must be positive")
     league_id = pitchapi_league_id(config)
     fixed_clock = now is not None
     now = utc_timestamp(now or datetime.now(timezone.utc))
@@ -90,16 +96,26 @@ def refresh_pitchapi(
         return frames
     client = client or PitchAPIClient(key)
     cache = ObservationCache(data_dir / "pitchapi_cache")
+    absence_path = data_dir / "pitchapi_cache/availability.json"
+    absences = json.loads(absence_path.read_text(encoding="utf-8")) if absence_path.exists() else {}
+    requests_used = 0
+
+    def request_payload(path):
+        nonlocal requests_used
+        if requests_used >= request_budget:
+            raise PitchAPIError("REQUEST_BUDGET_EXHAUSTED", "Resume the refresh to continue from saved responses")
+        requests_used += 1
+        return client._request(path)
     try:
         canonical = canonical if canonical is not None else load_canonical_fixtures(data_dir, config)
-        if seasons is None:
+        if seasons is None or seasons == ["all"]:
             catalogue = client.leagues()
             record = next((item for item in catalogue if item["id"] == league_id), None)
             if record is None:
                 raise PitchAPIError("LEAGUE_NOT_FOUND", "Configured league is absent from catalogue")
             # Operational default is the current season; explicitly request all seasons for a backfill.
             available_seasons = list(record.get("seasons", []))
-            seasons = [max(available_seasons, key=lambda value: int(str(value).split("/")[0]))] if available_seasons else []
+            seasons = sorted(available_seasons, key=lambda value: int(str(value).split("/")[0]), reverse=True) if seasons == ["all"] else [max(available_seasons, key=lambda value: int(str(value).split("/")[0]))] if available_seasons else []
         match_frames = []
         raw_matches = {}
         for season in seasons:
@@ -115,12 +131,13 @@ def refresh_pitchapi(
             return frames
         incoming = pd.concat(match_frames, ignore_index=True).drop_duplicates("match_id", keep="last")
         incoming["league_key"] = config.key
-        mapped, audit = reconcile_fixtures(incoming, canonical, aliases=config.team_aliases, mapped_at=now, max_hours=6.0)
+        source_end = pd.to_datetime(canonical.kickoff_utc, utc=True).max()
+        mapped, audit = reconcile_fixtures(incoming, canonical, aliases=config.team_aliases, mapped_at=now, max_hours=6.0, upcoming_source_end=source_end if source_end > now else None)
         write_frame(audit, data_dir / "pitchapi_fixture_audit.csv")
         existing_mapping = read_frame(data_dir / "provider_fixture_map.csv")
         mapping_index = pd.concat([existing_mapping, mapped], ignore_index=True).drop_duplicates("provider_match_id", keep="last") if not existing_mapping.empty else mapped
         write_frame(mapping_index, data_dir / "provider_fixture_map.csv")
-        unmatched = audit.loc[audit.status != "mapped"]
+        unmatched = audit.loc[~audit.status.isin(["mapped", "outside_source_window"])]
         for item in unmatched.itertuples(index=False):
             failure(f"FIXTURE_{item.status.upper()}", match_id=item.provider_match_id)
         incoming = incoming.merge(mapped[["provider_match_id", "fixture_id", "home_team_id", "away_team_id"]], left_on="match_id", right_on="provider_match_id", how="left", validate="one_to_one").drop(columns="provider_match_id")
@@ -144,18 +161,27 @@ def refresh_pitchapi(
                     (with_network, "network", "advanced/network"), (with_heatmaps, "heatmaps", "heatmaps"),
                 ) if enabled)
             # Keep actual played lineups for analytics/history; eligibility is decided at feature time.
-            if with_lineups:
+            if with_lineups and (completed or now < kickoff <= now + timedelta(hours=48)):
                 requests_to_make.append(("lineup_snapshots", "lineups"))
             for name, endpoint in requests_to_make:
                 path = f"/matches/{match_id}/{endpoint}"
+                absence_cached = False
                 try:
+                    absence = absences.get(path)
+                    frozen = completion is not None and now >= completion + timedelta(days=7)
+                    if absence and not refresh and (frozen or now - utc_timestamp(absence["checked_at"]) < timedelta(days=1)):
+                        absence_cached = True
+                        raise PitchAPIError(absence["code"], "Recorded endpoint absence")
                     observation = cache.fetch(
-                        f"{name}_{match_id}", path, lambda path=path: client._request(path), now=now if fixed_clock else None,
-                        completed_at=completion if name != "lineup_snapshots" else None,
-                        maximum_age=timedelta(hours=1) if name == "lineup_snapshots" else timedelta(days=1),
+                        f"{name}_{match_id}", path, lambda path=path: request_payload(path), now=now if fixed_clock else None,
+                        completed_at=completion,
+                        maximum_age=timedelta(hours=1) if name == "lineup_snapshots" and not completed else timedelta(days=1),
                         refresh=refresh,
-                        preserve_observation=name == "lineup_snapshots",
+                        preserve_observation=name == "lineup_snapshots" and not completed,
                     )
+                    if observation.error_code == "REQUEST_BUDGET_EXHAUSTED":
+                        run["status"] = "partial"
+                        break
                     if observation.error_code:
                         failure(observation.error_code, match_id=match_id, endpoint=endpoint)
                     lineage = {"fixture_id": fixture_id, "match_id": match_id, "team_ids": team_ids, "observed_at": observation.observed_at}
@@ -175,14 +201,24 @@ def refresh_pitchapi(
                     else:
                         normalized = pd.DataFrame([{**point, "fixture_id": fixture_id, "match_id": match_id, "observed_at": observation.observed_at.isoformat(), "provider_schema_version": INTEGRATION_SCHEMA_VERSION} for point in observation.payload.get("points", [])])
                     artifact = f"pitchapi_{name}"
+                    response = pd.DataFrame([{"fixture_id": fixture_id, "match_id": match_id, "artifact": artifact, "observed_at": observation.observed_at.isoformat(), "row_count": len(normalized)}])
+                    if name in {"advanced_team", "player_match"}:
+                        normalized = with_removals(normalized, frames[artifact], fixture_id=fixture_id, identity="team_id" if name == "advanced_team" else "player_id", observed_at=observation.observed_at)
                     keys = {"shots": ["fixture_id", "shot_id", "observed_at"], "advanced_team": ["fixture_id", "team_id", "observed_at"], "player_match": ["fixture_id", "player_id", "observed_at"], "lineup_snapshots": ["snapshot_id", "player_id"], "momentum": ["fixture_id", "minute", "observed_at"]}.get(name)
                     if keys is None:
                         # Networks/heatmaps retain response-level revision identity and deterministic row indices.
                         normalized = normalized.assign(provider_row_id=range(len(normalized)))
                         keys = ["fixture_id", "observed_at", "provider_row_id"]
                     frames[artifact] = append_revisions(normalized, data_dir / f"{artifact}{ARTIFACTS[artifact]}", keys=keys)
+                    frames["pitchapi_response_revisions"] = append_revisions(response, data_dir / "pitchapi_response_revisions.parquet", keys=["fixture_id", "artifact", "observed_at"])
+                    absences.pop(path, None)
                     run["capabilities"].setdefault(name, {"successes": 0, "failures": 0})["successes"] += 1
                 except (PitchAPIError, ValueError, TypeError, KeyError, OSError) as exc:
+                    if getattr(exc, "code", None) == "REQUEST_BUDGET_EXHAUSTED":
+                        run["status"] = "partial"
+                        break
+                    if not absence_cached and getattr(exc, "code", None) in {"ANALYTICS_UNAVAILABLE", "RESOURCE_NOT_FOUND"}:
+                        absences[path] = {"code": exc.code, "checked_at": now.isoformat() if fixed_clock else datetime.now(timezone.utc).isoformat()}
                     failure(getattr(exc, "code", type(exc).__name__), match_id=match_id, endpoint=endpoint)
                     run["capabilities"].setdefault(name, {"successes": 0, "failures": 0})["failures"] += 1
                     if not optional and getattr(exc, "code", None) not in {"ANALYTICS_UNAVAILABLE", "RESOURCE_NOT_FOUND"}:
@@ -196,6 +232,8 @@ def refresh_pitchapi(
                 # Compatibility CSV keeps name/date keys expected by older consumer xG paths.
                 xg = summary[["fixture_id", "home_xg", "away_xg", "observed_at"]].assign(match_id=match_id, match_date=match.match_date, HomeTeam=config.team_aliases.get(match.home_team, match.home_team), AwayTeam=config.team_aliases.get(match.away_team, match.away_team))
                 frames["pitchapi_match_xg"] = pd.concat([frames["pitchapi_match_xg"], xg], ignore_index=True).drop_duplicates("fixture_id", keep="last")
+            if run["status"] == "partial":
+                break
         if summary_rows:
             frames["pitchapi_match_shot_features"] = append_revisions(pd.concat(summary_rows, ignore_index=True), data_dir / "pitchapi_match_shot_features.csv", keys=["fixture_id", "observed_at"])
             write_frame(frames["pitchapi_match_xg"], data_dir / "pitchapi_match_xg.csv")
@@ -204,5 +242,8 @@ def refresh_pitchapi(
         if not optional:
             raise
     finally:
+        run["requests_used"] = requests_used
+        run["request_budget"] = request_budget
+        atomic_json(absence_path, absences)
         atomic_json(health_path, run)
     return frames

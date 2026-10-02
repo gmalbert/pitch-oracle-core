@@ -51,7 +51,8 @@ def build_pitchapi_feature_mart(targets: pd.DataFrame, source_fixtures: pd.DataF
         if "as_of" in result:
             built = built.drop(columns="as_of")
         result = result.merge(built, on="fixture_id", validate="one_to_one")
-    keepers = build_keeper_matches(players, shots, source_fixtures)
+    response_revisions = read_frame(Path(data_dir) / "pitchapi_response_revisions.parquet") if data_dir is not None else pd.DataFrame()
+    keepers = build_keeper_matches(players, shots, source_fixtures, response_revisions=response_revisions)
     squad = build_squad_features(targets, players, lineups, source_fixtures, keeper_matches=keepers, as_of=as_of)
     lineage.append(pd.to_datetime(squad.pop("squad_feature_observed_at"), utc=True))
     result = result.merge(squad, on="fixture_id", validate="one_to_one")

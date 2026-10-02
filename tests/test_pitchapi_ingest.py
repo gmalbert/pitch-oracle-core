@@ -76,8 +76,18 @@ def test_hourly_lineup_observations_are_preserved_even_if_xi_is_unchanged(tmp_pa
     client = transport()
     first = run(tmp_path, client)
     second = run(tmp_path, client, now=NOW + timedelta(hours=1))
-    assert len(second["pitchapi_lineup_snapshots"]) == 2 * len(first["pitchapi_lineup_snapshots"])
+    assert second["pitchapi_lineup_snapshots"].loc[lambda rows: rows.fixture_id.eq("fx:next")].snapshot_at.nunique() == 2
+    assert second["pitchapi_lineup_snapshots"].loc[lambda rows: rows.fixture_id.eq("fx:past")].snapshot_at.nunique() == 1
     assert second["pitchapi_lineup_snapshots"].snapshot_at.nunique() == 2
+
+
+def test_lineup_polling_is_bounded_to_provider_window(tmp_path):
+    client = transport()
+    client.league_matches.return_value[1]["time_utc"] = "2026-10-10T18:00:00Z"
+    fixtures = canonical()
+    fixtures.loc[fixtures.fixture_id.eq("fx:next"), "kickoff_utc"] = "2026-10-10T18:00:00Z"
+    refresh_pitchapi("eredivisie", seasons=["2026/2027"], output_dir=tmp_path, canonical=fixtures, client=client, with_shots=False, with_lineups=True, now=NOW)
+    assert [call.args[0] for call in client._request.call_args_list] == ["/matches/m_past/lineups"]
 
 
 def test_optional_refresh_failure_preserves_last_valid_cache(tmp_path):
@@ -122,6 +132,27 @@ def test_latest_season_does_not_depend_on_catalogue_order(tmp_path):
     client.leagues.return_value = [{"id": "l_4H43wr", "seasons": ["2021/2022", "2026/2027", "2025/2026"]}]
     refresh_pitchapi("eredivisie", output_dir=tmp_path, canonical=canonical(), client=client, now=NOW)
     client.league_matches.assert_called_once_with("l_4H43wr", "2026/2027", status="all")
+
+
+def test_request_budget_resumes_at_saved_responses(tmp_path):
+    client = transport()
+    first = run(tmp_path, client, request_budget=2)
+    report = json.loads((tmp_path / "pitchapi_provider_run.json").read_text())
+    assert report["status"] == "partial" and report["requests_used"] == 2
+    assert not first["pitchapi_shots"].empty and first["pitchapi_player_match"].empty
+    second = run(tmp_path, client, request_budget=2)
+    assert not second["pitchapi_player_match"].empty
+    assert client._request.call_count == 4
+
+
+def test_cached_endpoint_absence_expires_without_sliding_the_clock(tmp_path):
+    client = transport()
+    client._request.side_effect = PitchAPIError("ANALYTICS_UNAVAILABLE")
+    refresh_pitchapi("eredivisie", seasons=["2026/2027"], output_dir=tmp_path, canonical=canonical(), client=client, now=NOW)
+    refresh_pitchapi("eredivisie", seasons=["2026/2027"], output_dir=tmp_path, canonical=canonical(), client=client, now=NOW + timedelta(hours=1))
+    assert client._request.call_count == 1
+    refresh_pitchapi("eredivisie", seasons=["2026/2027"], output_dir=tmp_path, canonical=canonical(), client=client, now=NOW + timedelta(days=1))
+    assert client._request.call_count == 2
 
 
 def test_football_data_historical_clock_is_independent_of_weather_timezone():

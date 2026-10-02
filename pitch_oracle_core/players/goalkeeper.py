@@ -9,7 +9,7 @@ from .lineup_strength import shrink_player
 from pitch_oracle_core.pitchapi.normalize import boolean
 
 
-def build_keeper_matches(players: pd.DataFrame, shots: pd.DataFrame, fixtures: pd.DataFrame) -> pd.DataFrame:
+def build_keeper_matches(players: pd.DataFrame, shots: pd.DataFrame, fixtures: pd.DataFrame, *, response_revisions: pd.DataFrame | None = None) -> pd.DataFrame:
     """Join immutable player/shot revisions without inventing keeper attribution.
 
     Penalties in regulation are included; shootouts and own goals are excluded.
@@ -18,9 +18,12 @@ def build_keeper_matches(players: pd.DataFrame, shots: pd.DataFrame, fixtures: p
     Such a match contributes no keeper shot-stopping observation.
     """
     columns = ["fixture_id", "player_id", "team_id", "source_kickoff_utc", "observed_at", "minutes", "xgot_faced", "goals_conceded_non_own_goal", "shots_on_target_faced"]
-    if players.empty or shots.empty:
+    revisions = response_revisions if response_revisions is not None else pd.DataFrame()
+    if players.empty or (shots.empty and revisions.empty):
         return pd.DataFrame(columns=columns)
     players, shots = players.copy(), shots.copy()
+    if shots.empty:
+        shots = pd.DataFrame(columns=["fixture_id", "observed_at", "opponent_id", "period", "is_own_goal", "is_on_target", "is_goal", "expected_goals_on_target"])
     for frame in (players, shots):
         frame["observed_at"] = pd.to_datetime(frame.observed_at, utc=True, errors="raise")
         if frame.observed_at.isna().any():
@@ -35,22 +38,34 @@ def build_keeper_matches(players: pd.DataFrame, shots: pd.DataFrame, fixtures: p
         source = fixture_lookup.loc[fixture_id]
         kickoff = pd.Timestamp(source.kickoff_utc)
         shot_history = shots.loc[shots.fixture_id == fixture_id]
-        if shot_history.empty:
+        shot_revisions = revisions.loc[revisions.fixture_id.eq(fixture_id) & revisions.artifact.eq("pitchapi_shots")].copy() if not revisions.empty else pd.DataFrame()
+        if not shot_revisions.empty:
+            shot_revisions["observed_at"] = pd.to_datetime(shot_revisions.observed_at, utc=True)
+        if shot_history.empty and shot_revisions.empty:
             continue
-        for observed_at in sorted(set(player_history.observed_at).union(shot_history.observed_at)):
+        times = set(player_history.observed_at).union(shot_history.observed_at)
+        times.update(shot_revisions.observed_at if not shot_revisions.empty else [])
+        previous_keepers = {}
+        for observed_at in sorted(times):
             if observed_at <= kickoff:
                 raise ValueError("Keeper match observations must follow source kickoff")
             p = player_history.loc[player_history.observed_at <= observed_at].sort_values("observed_at").drop_duplicates("player_id", keep="last")
+            if "is_deleted" in p:
+                p = p.loc[~p.is_deleted.fillna(False).astype(bool)]
             s = shot_history.loc[shot_history.observed_at <= observed_at]
-            if p.empty or s.empty:
+            clocks = shot_revisions.loc[shot_revisions.observed_at <= observed_at] if not shot_revisions.empty else pd.DataFrame()
+            if s.empty and clocks.empty:
                 continue
             # Select a complete shot response, so a removed shot does not survive a correction.
-            s = s.loc[s.observed_at == s.observed_at.max()]
+            clock = max(s.observed_at.max(), clocks.observed_at.max()) if not s.empty and not clocks.empty else clocks.observed_at.max() if not clocks.empty else s.observed_at.max()
+            s = s.loc[s.observed_at == clock]
+            current_keepers = {}
             for team_id in (source.home_team_id, source.away_team_id):
                 keepers = p.loc[p.team_id.eq(team_id) & p.position.fillna("").str.upper().eq("GK") & pd.to_numeric(p.minutes, errors="coerce").gt(0)]
                 if len(keepers) != 1 or float(keepers.iloc[0].minutes) < 89:
                     continue
                 keeper = keepers.iloc[0]
+                current_keepers[str(keeper.player_id)] = team_id
                 faced = s.loc[s.opponent_id.eq(team_id) & ~s.period.fillna("").str.casefold().isin({"penaltyshootout", "penalty_shootout", "shootout"})]
                 # Unknown own-goal/target flags cannot be assumed false.
                 own_known = faced.is_own_goal.map(boolean).notna().all()
@@ -64,6 +79,12 @@ def build_keeper_matches(players: pd.DataFrame, shots: pd.DataFrame, fixtures: p
                 if pd.notna(row["keeper_distribution_accuracy"]) and pd.notna(row["keeper_distributions"]):
                     row["keeper_distributions_completed"] = row["keeper_distributions"] * row["keeper_distribution_accuracy"] / 100.0
                 output.append(row)
+            # A later correction that removes the keeper or invalidates attribution
+            # must also invalidate the previously derived sample at later cutoffs.
+            for player_id, team_id in previous_keepers.items():
+                if player_id not in current_keepers:
+                    output.append({"fixture_id": fixture_id, "player_id": player_id, "team_id": team_id, "source_kickoff_utc": kickoff.isoformat(), "observed_at": observed_at.isoformat(), "minutes": 0.0, "xgot_faced": np.nan, "goals_conceded_non_own_goal": np.nan, "shots_on_target_faced": np.nan})
+            previous_keepers = current_keepers
     return pd.DataFrame(output) if output else pd.DataFrame(columns=columns)
 
 

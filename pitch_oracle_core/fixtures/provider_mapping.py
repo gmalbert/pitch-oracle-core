@@ -87,6 +87,7 @@ def map_provider_fixture(provider_row: pd.Series, canonical: pd.DataFrame, *, al
 def reconcile_fixtures(
     provider: pd.DataFrame, canonical: pd.DataFrame, *, aliases: dict[str, str],
     max_hours: float = 6.0, mapped_at: datetime | None = None,
+    upcoming_source_end: pd.Timestamp | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     mapped_at = mapped_at or datetime.now(timezone.utc)
     if mapped_at.tzinfo is None:
@@ -100,6 +101,8 @@ def reconcile_fixtures(
     for _, item in provider.iterrows():
         oriented, reversed_rows = _candidates(item, prepared, aliases, max_hours)
         status = "mapped" if len(oriented) == 1 else "ambiguous" if len(oriented) > 1 else "reversed" if len(reversed_rows) else "unmatched"
+        if status == "unmatched" and upcoming_source_end is not None and item.get("status") == "not_started" and pd.Timestamp(item.kickoff_utc) > upcoming_source_end:
+            status = "outside_source_window"
         if status == "mapped":
             row = oriented.iloc[0]
             date_only = row.get("kickoff_precision") == "date_only"

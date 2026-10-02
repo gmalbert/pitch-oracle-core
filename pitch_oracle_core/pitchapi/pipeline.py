@@ -17,9 +17,9 @@ from .model_bundle import train_model_bundles
 from .storage import read_frame
 
 
-def daily(*, league_key, data_dir="data_files", historical_file="combined_historical_data_with_calculations_new.csv", seasons=None, refresh=False):
+def daily(*, league_key, data_dir="data_files", historical_file="combined_historical_data_with_calculations_new.csv", seasons=None, refresh=False, request_budget=500):
     root = Path(data_dir)
-    refresh_pitchapi(league_key, output_dir=root, seasons=seasons, with_shots=True, with_advanced=True, with_players=True, with_lineups=True, with_momentum=True, with_network=True, with_heatmaps=True, refresh=refresh)
+    refresh_pitchapi(league_key, output_dir=root, seasons=seasons, with_shots=True, with_advanced=True, with_players=True, with_lineups=True, with_momentum=True, with_network=True, with_heatmaps=True, refresh=refresh, request_budget=request_budget)
     atomic_json(root / "pitchapi_health.json", build_coverage_report(root, league_key=league_key))
     # The package import avoids shadowing by standalone consumers' legacy modules.
     try:
@@ -39,10 +39,14 @@ def main(argv=None):
     parser.add_argument("--models-dir", default="models")
     parser.add_argument("--historical-file", default="combined_historical_data_with_calculations_new.csv")
     parser.add_argument("--seasons", nargs="*", help="Explicit seasons for a historical backfill")
+    parser.add_argument("--all-seasons", action="store_true", help="Backfill every provider season, newest first; requires primary historical identities")
+    parser.add_argument("--request-budget", type=int, default=500, help="Maximum new analytics requests per run; saved responses are reused on continuation")
     parser.add_argument("--refresh", action="store_true", help="Manually refresh completed responses after the seven-day correction period")
     args = parser.parse_args(argv)
     if args.mode == "daily":
-        daily(league_key=args.league, data_dir=args.data_dir, historical_file=args.historical_file, seasons=args.seasons, refresh=args.refresh)
+        if args.all_seasons and args.seasons:
+            parser.error("Choose --all-seasons or --seasons")
+        daily(league_key=args.league, data_dir=args.data_dir, historical_file=args.historical_file, seasons=["all"] if args.all_seasons else args.seasons, refresh=args.refresh, request_budget=args.request_budget)
     elif args.mode == "train":
         config = FeatureFamilyConfig.load(Path(args.data_dir) / "pitchapi_feature_config.json", league_key=args.league)
         train_model_bundles(read_frame(Path(args.data_dir) / args.historical_file), configuration=config, models_dir=args.models_dir)

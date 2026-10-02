@@ -11,6 +11,7 @@ import pandas as pd
 from .cache import atomic_json
 from .contracts import INTEGRATION_SCHEMA_VERSION, utc_timestamp
 from .storage import read_frame
+from .revisions import complete_responses
 
 
 def _latest(frame: pd.DataFrame, keys: list[str], timestamp: str = "observed_at") -> pd.DataFrame:
@@ -51,6 +52,8 @@ def build_coverage_report(data_dir: str | Path, *, league_key: str, now: datetim
     lineups = read_frame(data_dir / "pitchapi_lineup_snapshots.parquet")
     network = read_frame(data_dir / "pitchapi_network.parquet")
     momentum = read_frame(data_dir / "pitchapi_momentum.parquet")
+    revisions = read_frame(data_dir / "pitchapi_response_revisions.parquet")
+    advanced, players, network, momentum = [complete_responses(frame, revisions, artifact=name) for frame, name in ((advanced, "pitchapi_advanced_team"), (players, "pitchapi_player_match"), (network, "pitchapi_network"), (momentum, "pitchapi_momentum"))]
     run_path = data_dir / "pitchapi_provider_run.json"
     run = json.loads(run_path.read_text(encoding="utf-8")) if run_path.exists() else {}
     if season is not None and not matches.empty:
@@ -63,8 +66,11 @@ def build_coverage_report(data_dir: str | Path, *, league_key: str, now: datetim
     report = {"provider": "pitchapi", "schema_version": INTEGRATION_SCHEMA_VERSION, "league_key": league_key, "checked_at": now.isoformat(), "last_run_status": run.get("status", "unavailable"), "capabilities": {}, "mapping": {"gate_passed": False, "coverage": 0.0, "expected": 0, "mapped": 0}, "latency_minutes": {}, "lineup_lead_minutes": {}, "missingness": {}}
     if not audit.empty:
         counts = audit.status.value_counts().to_dict()
-        total = len(audit)
-        report["mapping"] = {"expected": total, "mapped": int(counts.get("mapped", 0)), "coverage": counts.get("mapped", 0) / total, "gate_passed": counts.get("mapped", 0) / total >= .995 and counts.get("ambiguous", 0) == 0 and counts.get("reversed", 0) == 0, "unresolved": audit.loc[audit.status != "mapped"].to_dict("records")}
+        total = len(audit.loc[audit.status.ne("outside_source_window")])
+        coverage = counts.get("mapped", 0) / total if total else 0.0
+        unresolved = audit.loc[~audit.status.isin(["mapped", "outside_source_window"])].astype(object)
+        unresolved = unresolved.where(pd.notna(unresolved), None)
+        report["mapping"] = {"expected": total, "mapped": int(counts.get("mapped", 0)), "coverage": coverage, "outside_source_window": int(counts.get("outside_source_window", 0)), "gate_passed": coverage >= .995 and counts.get("ambiguous", 0) == 0 and counts.get("reversed", 0) == 0, "unresolved": unresolved.to_dict("records")}
     if matches.empty:
         report["capabilities"] = {name: capability_from_frame(name=name, expected_ids=set(), observed_ids=set(), observed_at=None, now=now, failed=run.get("status") == "degraded") for name in ("schedules", "predicted_lineups", "confirmed_lineups", "shots", "advanced_team", "advanced_player", "network", "momentum")}
         return report

@@ -154,6 +154,14 @@ def predict_with_fallback(historical: pd.DataFrame, upcoming: pd.DataFrame, *, b
                 reason = "missing_or_late_feature_lineage"
             if pd.Timestamp(promoted.trained_at) > cutoff or pd.Timestamp(promoted.trained_through) >= cutoff:
                 reason = "model_not_available_at_cutoff"
+            health = capability_health or {}
+            checked = pd.to_datetime(health.get("checked_at"), utc=True, errors="coerce")
+            if health.get("mapping", {}).get("gate_passed") is not True:
+                reason = "fixture_mapping_not_validated"
+            if pd.isna(checked) or checked > cutoff or cutoff - checked > pd.Timedelta(hours=24):
+                reason = "capability_audit_stale_or_missing"
+            if health.get("last_run_status") == "unavailable":
+                reason = "provider_unavailable"
             for family in promoted.families:
                 name = required_capabilities[family]
                 capability = (capability_health or {}).get("capabilities", {}).get(name, {})
@@ -165,6 +173,15 @@ def predict_with_fallback(historical: pd.DataFrame, upcoming: pd.DataFrame, *, b
                 if required and not any(pd.notna(fixture.get(column)) for column in required):
                     reason = f"{family}_missing_required_features"
                     break
+                for side in ("home", "away"):
+                    side_required = [column for column in required if column.startswith(f"{side}_")]
+                    if side_required and not any(pd.notna(fixture.get(column)) for column in side_required):
+                        reason = f"{family}_{side}_missing_required_features"
+                    if family in {"predicted_lineup", "confirmed_lineup"}:
+                        observed = pd.to_datetime(fixture.get(f"{side}_lineup_observed_at"), utc=True, errors="coerce")
+                        maximum_age = pd.Timedelta(hours=6) if family == "predicted_lineup" else pd.Timedelta(minutes=75)
+                        if pd.isna(observed) or observed > cutoff or cutoff - observed > maximum_age:
+                            reason = f"{family}_{side}_stale_or_missing"
         selected = baseline if reason is not None else promoted
         assert selected is not None
         matrix = build_upcoming_feature_matrix(historical, pd.DataFrame([fixture]), selected.contract, as_of=as_of)

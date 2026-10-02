@@ -49,6 +49,7 @@ _EREDIVISIE_TEAM_ALIASES = {
     "NEC Nijmegen": "Nijmegen",
     "PEC Zwolle": "Zwolle",
     "SC Cambuur": "Cambuur",
+    "SC Heerenveen": "Heerenveen",
 }
 _EREDIVISIE_STADIUMS = {
     # Current and recent Eredivisie clubs. Historical aliases are included so
@@ -89,6 +90,9 @@ _TURKEY_TEAM_ALIASES = {
     "Gaziantep FK": "Gaziantep",
     "Goztepe": "Goztep",
     "Istanbul Basaksehir": "Buyuksehyr",
+    "Başakşehir": "Buyuksehyr", "Kasımpaşa": "Kasimpasa",
+    "Amed Sportif": "Amedspor", "Erzurumspor FK": "Erzurumspor",
+    "Çorum FK": "Corum",
 }
 _BELGIUM_TEAM_ALIASES = {
     "Cercle Brugge KSV": "Cercle Brugge",
@@ -105,6 +109,8 @@ _BELGIUM_TEAM_ALIASES = {
     "Union St.-Gilloise": "St. Gilloise",
     "Waasland-Beveren": "Beveren",
     "Zulte-Waregem": "Waregem",
+    "Royal Antwerp": "Antwerp", "Sporting Charleroi": "Charleroi",
+    "Lommel": "Lommel SK", "SK Beveren": "Beveren",
 }
 _PORTUGAL_TEAM_ALIASES = {
     "Marítimo": "Maritimo",
@@ -215,6 +221,7 @@ BUILTIN_LEAGUES = {
             "Villarreal CF": "Villarreal", "Deportivo Alavés": "Alaves", "Deportivo Alaves": "Alaves", "Dep. Alaves": "Alaves",
             "Elche CF": "Elche", "UD Almería": "Almeria", "UD Almeria": "Almeria",
             "Real Valladolid CF": "Valladolid", "CD Leganés": "Leganes", "CD Leganes": "Leganes", "UD Las Palmas": "Las Palmas", "Real Oviedo": "Oviedo",
+            "Deportivo A Coruña": "La Coruna", "Racing Santander": "Santander",
         },
         outcome_labels={"title": (1,), "champions_league": (1, 2, 3, 4), "relegation": (18, 19, 20)},
     ),

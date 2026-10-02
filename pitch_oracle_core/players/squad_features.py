@@ -18,7 +18,7 @@ def _starters(lineup: pd.DataFrame) -> set[str]:
 
 
 def _reference_roster(history: pd.DataFrame, team_id: str) -> list[str]:
-    team = history.loc[history.team_id.astype(str) == str(team_id)]
+    team = history.loc[history.team_id.astype(str).eq(str(team_id)) & pd.to_numeric(history.minutes, errors="coerce").gt(0)]
     if team.empty:
         return []
     recent_fixtures = team.sort_values("source_kickoff_utc").fixture_id.drop_duplicates().tail(5)
@@ -71,6 +71,7 @@ def build_squad_features(targets: pd.DataFrame, players: pd.DataFrame, snapshots
             lineup = latest_eligible_lineup(snapshots, fixture_id=target.fixture_id, team_id=team_id, as_of=cutoff, require_complete=True)
             status = lineup_status(lineup)
             row[f"{side}_lineup_status"] = status
+            row[f"{side}_lineup_observed_at"] = pd.to_datetime(lineup.snapshot_at, utc=True).max().isoformat() if not lineup.empty else None
             row[f"{side}_lineup_is_confirmed"] = float(status == "confirmed")
             row[f"{side}_lineup_coverage"] = 0.0
             keeper_id = None
@@ -115,4 +116,4 @@ def build_squad_features(targets: pd.DataFrame, players: pd.DataFrame, snapshots
                 lineage.append(pd.Timestamp(keeper.source_observed_at))
         row["squad_feature_observed_at"] = max(lineage).isoformat() if lineage else None
         output.append(row)
-    return pd.DataFrame(output, columns=["fixture_id", *numeric, "home_lineup_status", "away_lineup_status", "home_keeper_id", "away_keeper_id", "squad_feature_observed_at"])
+    return pd.DataFrame(output, columns=["fixture_id", *numeric, "home_lineup_status", "away_lineup_status", "home_lineup_observed_at", "away_lineup_observed_at", "home_keeper_id", "away_keeper_id", "squad_feature_observed_at"])

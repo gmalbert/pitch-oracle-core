@@ -42,7 +42,7 @@ def build_forecast_inputs(historical: pd.DataFrame, upcoming: pd.DataFrame, *, c
         state = state.loc[state.fixture_id == target.fixture_id].iloc[0]
         row = target.to_dict()
         row.update(state.to_dict())
-        for canonical, legacy in {"home_points_l5": "HomeTeamPointsLast5", "away_points_l5": "AwayTeamPointsLast5", "home_rest_days": "HomeRestDays", "away_rest_days": "AwayRestDays"}.items():
+        for canonical, legacy in {"home_points_l5": "HomeTeamPointsLast5", "away_points_l5": "AwayTeamPointsLast5", "home_rest_days": "HomeRestDays", "away_rest_days": "AwayRestDays", "home_goals_for_l5": "HomeGoalsAve", "away_goals_for_l5": "AwayGoalsAve"}.items():
             row[legacy] = row.get(canonical)
         output.append(row)
     targets = pd.DataFrame(output)

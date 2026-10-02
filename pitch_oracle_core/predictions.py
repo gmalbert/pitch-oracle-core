@@ -285,7 +285,7 @@ def production_probabilities(
                 promoted = load_bundle(Path(models_dir) / "pitchapi_promoted.pkl", league_key=league_key)
                 if promoted.families != configuration.enabled_families or promoted.evidence_id != configuration.evidence_id:
                     promoted = None
-            except (OSError, ValueError, pickle.UnpicklingError):
+            except (OSError, ValueError, pickle.UnpicklingError, EOFError, AttributeError, TypeError):
                 promoted = None
             health_path = Path(data_dir) / "pitchapi_health.json"
             try:
@@ -302,6 +302,18 @@ def production_probabilities(
                     upcoming[column] = metadata[column].to_numpy()
             upcoming["as_of"] = cutoff.isoformat()
             return probabilities
+        if production_candidate == "no_odds":
+            from .features.forecast_inputs import build_forecast_inputs
+            from .leagues import get_league_config
+            cutoff = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp.now(tz="UTC")
+            inputs = build_forecast_inputs(historical, upcoming, config=get_league_config(league_key), as_of=cutoff)
+            # Recompute the same prior football state with the newest completed
+            # match included; a carried pre-match row would be one game behind.
+            for column in contract.feature_names:
+                if column in inputs:
+                    upcoming[column] = inputs[column].to_numpy()
+            upcoming["as_of"] = cutoff.isoformat()
+            as_of = cutoff
     if production_candidate == "no_odds":
         model_path = Path(models_dir) / "ensemble_model.pkl"
         with model_path.open("rb") as stream:
