@@ -14,9 +14,10 @@ class PlayerStrength:
     effective_minutes: float
     estimated_at: datetime
     model_id: str
+    prior_minutes: float = 900.0
 
     def __post_init__(self) -> None:
-        if self.effective_minutes < 0 or self.estimated_at.tzinfo is None:
+        if self.effective_minutes < 0 or self.estimated_at.tzinfo is None or self.prior_minutes <= 0:
             raise ValueError("invalid player strength state")
 
 
@@ -40,7 +41,13 @@ def lineup_delta(
     replacement_defense_per_90: float,
 ) -> tuple[float, float, float]:
     attack = defense = covered_minutes = 0.0
+    if len({member.player_id for member in members}) != len(members):
+        raise ValueError("Duplicate lineup player")
+    if len(members) > 11:
+        raise ValueError("A starting lineup cannot contain more than eleven players")
     for member in members:
+        if not 0 <= member.expected_minutes <= 90:
+            raise ValueError("expected player minutes outside [0, 90]")
         if not 0 <= member.availability_probability <= 1:
             raise ValueError("availability probability outside [0, 1]")
         expected = member.expected_minutes * member.availability_probability
@@ -50,10 +57,10 @@ def lineup_delta(
         if strength is None:
             continue
         attack += expected / 90 * shrink_player(
-            strength.attack_per_90, strength.effective_minutes
+            strength.attack_per_90, strength.effective_minutes, strength.prior_minutes
         )
         defense += expected / 90 * shrink_player(
-            strength.defense_per_90, strength.effective_minutes
+            strength.defense_per_90, strength.effective_minutes, strength.prior_minutes
         )
         covered_minutes += expected
     replacement_minutes = max(0.0, 990.0 - covered_minutes)
