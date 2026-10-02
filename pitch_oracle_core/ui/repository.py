@@ -9,23 +9,13 @@ import pandas as pd
 import streamlit as st
 
 from pitch_oracle_core.artifacts.repository import ArtifactRepository as BaseRepository
+from pitch_oracle_core.artifacts.repository import read_tabular_frame
 
 
-@st.cache_data(show_spinner=False)
-def _read_frame(path: str, modified_ns: int) -> pd.DataFrame:
+@st.cache_data(show_spinner=False, max_entries=128, ttl=600)
+def _read_frame(path: str, modified_ns: int, columns=None, filters=None, delimiter=None) -> pd.DataFrame:
     del modified_ns
-    suffix = Path(path).suffix.lower()
-    if suffix == ".parquet":
-        return pd.read_parquet(path)
-    if suffix in {".csv", ".tsv"}:
-        return pd.read_csv(path, sep="\t" if suffix == ".tsv" else ",")
-    if suffix == ".jsonl":
-        return pd.read_json(path, lines=True)
-    if suffix == ".json":
-        value = json.loads(Path(path).read_text(encoding="utf-8"))
-        if isinstance(value, list):
-            return pd.DataFrame(value)
-    raise ValueError(f"Unsupported frame artifact: {path}")
+    return read_tabular_frame(path, columns=columns, filters=filters, delimiter=delimiter)
 
 
 @st.cache_data(show_spinner=False)
@@ -45,9 +35,9 @@ def _read_arrays(path: str, modified_ns: int) -> dict[str, np.ndarray]:
 
 
 class ArtifactRepository(BaseRepository):
-    def frame(self, name: str) -> pd.DataFrame:
+    def frame(self, name: str, *, columns=None, filters=None) -> pd.DataFrame:
         path = self.path(name)
-        return _read_frame(str(path), path.stat().st_mtime_ns)
+        return _read_frame(str(path), path.stat().st_mtime_ns, columns, filters, self.descriptors[name].get("delimiter"))
 
     def json(self, name: str) -> dict:
         path = self.path(name)

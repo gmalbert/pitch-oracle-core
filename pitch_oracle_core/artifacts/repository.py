@@ -7,8 +7,44 @@ from pathlib import Path
 import json
 import numpy as np
 import pandas as pd
+from collections.abc import Mapping, Sequence
 
 from .manifest import load_manifest, validate_artifact_files
+
+
+def read_tabular_frame(path: str | Path, *, columns: Sequence[str] | None = None, filters: Mapping[str, object] | None = None, delimiter: str | None = None) -> pd.DataFrame:
+    """Push fixture/team predicates into Parquet and bound filtered CSV memory."""
+    path = Path(path)
+    suffix = path.suffix.lower()
+    predicates = dict(filters or {})
+    def select(frame):
+        for field, value in predicates.items():
+            if field not in frame:
+                raise ValueError(f"Artifact filter column is absent: {field}")
+            frame = frame.loc[frame[field].isin(value) if isinstance(value, (list, tuple, set)) else frame[field].eq(value)]
+        return frame[list(columns)] if columns is not None else frame
+    selected_columns = list(dict.fromkeys([*(columns or []), *predicates])) if columns is not None else None
+    if suffix == ".parquet":
+        parquet_filters = [(field, "in" if isinstance(value, (list, tuple, set)) else "=", list(value) if isinstance(value, (list, tuple, set)) else value) for field, value in predicates.items()]
+        frame = pd.read_parquet(path, columns=selected_columns, filters=parquet_filters or None)
+        return frame[list(columns)] if columns is not None else frame
+    if suffix in {".csv", ".tsv"}:
+        if delimiter is None:
+            with path.open(encoding="utf-8-sig") as stream:
+                header = stream.readline()
+            delimiter = "\t" if "\t" in header else ","
+        if predicates:
+            parts = [select(chunk) for chunk in pd.read_csv(path, sep=delimiter, usecols=selected_columns, chunksize=50_000, low_memory=False)]
+            return pd.concat(parts, ignore_index=True) if parts else pd.read_csv(path, sep=delimiter, nrows=0, usecols=columns)
+        return pd.read_csv(path, sep=delimiter, usecols=selected_columns, low_memory=False)
+    if suffix == ".jsonl":
+        return select(pd.read_json(path, lines=True))
+    if suffix == ".json":
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(value, list):
+            return select(pd.DataFrame(value))
+        raise TypeError("JSON artifact is not tabular")
+    raise ValueError(f"Unsupported tabular artifact format: {suffix}")
 
 
 @dataclass(frozen=True)
@@ -102,21 +138,12 @@ class ArtifactRepository:
             raise FileNotFoundError(path)
         return path
 
-    def frame(self, name: str) -> pd.DataFrame:
+    def frame(self, name: str, *, columns: Sequence[str] | None = None, filters: Mapping[str, object] | None = None) -> pd.DataFrame:
         path = self.path(name)
-        suffix = path.suffix.lower()
-        if suffix == ".parquet":
-            return pd.read_parquet(path)
-        if suffix in {".csv", ".tsv"}:
-            return pd.read_csv(path, sep="\t" if suffix == ".tsv" else ",")
-        if suffix in {".json", ".jsonl"}:
-            if suffix == ".jsonl":
-                return pd.read_json(path, lines=True)
-            value = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(value, list):
-                return pd.DataFrame(value)
-            raise TypeError(f"JSON artifact {name!r} is not tabular")
-        raise ValueError(f"Unsupported tabular artifact format: {suffix}")
+        return read_tabular_frame(path, columns=columns, filters=filters, delimiter=self.descriptors[name].get("delimiter"))
+
+    def fixture_frame(self, name: str, fixture_id: str, *, columns: Sequence[str] | None = None) -> pd.DataFrame:
+        return self.frame(name, filters={"fixture_id": fixture_id}, columns=columns)
 
     def json(self, name: str) -> dict:
         value = json.loads(self.path(name).read_text(encoding="utf-8"))
