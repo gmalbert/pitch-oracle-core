@@ -59,6 +59,8 @@ def generate() -> Path:
         contract,
         production_candidate=candidate,
         models_dir=ROOT / "models",
+        league_key=LEAGUE_CONFIG.key,
+        data_dir=ROOT / "data_files",
     )
     output = ROOT / "data_files" / "upcoming_predictions.csv"
     build_prediction_frame(upcoming, probabilities).to_csv(output, index=False)

@@ -128,6 +128,8 @@ def write_cache_manifest(
             "bytes": artifact.stat().st_size,
             "sha256": _sha256(artifact),
         }
+    from .pitchapi.artifacts import optional_descriptors, feature_metadata
+    artifacts.update(optional_descriptors(root))
 
     output = root / "precomputed" / "cache_manifest.json"
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -140,6 +142,7 @@ def write_cache_manifest(
                 "league": active_league,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "artifacts": artifacts,
+                "pitchapi": feature_metadata(root, active_league),
             },
             indent=2,
         )
@@ -205,17 +208,25 @@ def validate_cache(
     )
     artifact_names: set[str] = set()
     for name, item in artifact_items:
-        artifact_names.add(str(name))
-        artifact = root / item["path"]
+        artifact = (root / item["path"]).resolve()
+        artifact.relative_to(root.resolve())
         if not artifact.is_file():
+            if item.get("required", True) is False:
+                warnings.append(f"Optional artifact '{name}' is missing")
+                continue
             raise FileNotFoundError(f"Cache artifact '{name}' is missing: {artifact}")
         if artifact.stat().st_size != item["bytes"] or _sha256(artifact) != item["sha256"]:
+            if item.get("required", True) is False:
+                warnings.append(f"Optional artifact '{name}' failed integrity validation")
+                continue
             raise RuntimeError(f"Cache artifact '{name}' failed integrity validation")
+        artifact_names.add(str(name))
     if contract_current and schema_version == 2:
         _validate_prediction_artifacts(root, artifact_names)
     elif contract_current and schema_version == 3:
         from .artifacts.manifest import load_manifest, validate_artifact_files
 
         typed_manifest = load_manifest(manifest_path)
-        validate_artifact_files(typed_manifest, root)
+        failures = validate_artifact_files(typed_manifest, root, allow_optional_failures=True)
+        warnings.extend(f"Optional artifact '{name}' is unavailable: {reason}" for name, reason in failures.items())
     return tuple(warnings)

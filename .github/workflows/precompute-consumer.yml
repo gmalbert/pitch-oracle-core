@@ -34,6 +34,9 @@ on:
         required: true
         type: string
     secrets:
+      PITCH_API_KEY:
+        description: "Optional PitchAPI credential for observed analytics and lineup captures"
+        required: false
       FD_API_KEY:
         description: "football-data.org X-Auth-Token"
         required: false
@@ -56,6 +59,7 @@ jobs:
     timeout-minutes: 60
     env:
       PITCH_ORACLE_LEAGUE: ${{ inputs.league_key }}
+      PITCH_API_KEY: ${{ secrets.PITCH_API_KEY }}
       PITCH_ORACLE_DISABLE_WEATHER: "1"
       FD_API_KEY: ${{ secrets.FD_API_KEY }}
       BZZOIRO_KEY: ${{ secrets.BZZOIRO_KEY }}
@@ -84,6 +88,9 @@ jobs:
         shell: bash
         run: ${{ inputs.data_command }}
 
+      - name: Refresh optional PitchAPI data and shared historical features
+        run: python -m pitch_oracle_core.pitchapi.pipeline daily --league "${{ inputs.league_key }}"
+
       - name: Audit chronology and no-odds model candidate
         run: >-
           python -m pitch_oracle_core.audit_cli
@@ -104,6 +111,9 @@ jobs:
         shell: bash
         run: ${{ inputs.prediction_command }}
 
+      - name: Capture actual forecast issue and publish analytics index
+        run: python -m pitch_oracle_core.pitchapi.pipeline hourly --league "${{ inputs.league_key }}"
+
       - name: Export best bets
         run: python -m pitch_oracle_core.best_bets
 
@@ -119,5 +129,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data_files models precomputed
-          git diff --cached --quiet || git commit -m "chore: refresh precomputed prediction cache"
+          git add -f models/pitchapi_baseline.pkl
+          if [ -f models/pitchapi_promoted.pkl ]; then git add -f models/pitchapi_promoted.pkl; fi
+          git diff --cached --quiet || git commit -m "chore: refresh precomputed prediction cache" -m $'## Generated artifacts\nRefresh the league data, fitted models, prediction cache, optional PitchAPI revisions and capability audit as one validated set.\n\n## Validation\nChronology/model gates, manifest integrity, and consumer tests passed before committing.'
           git push

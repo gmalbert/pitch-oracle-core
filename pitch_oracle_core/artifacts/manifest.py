@@ -34,6 +34,7 @@ class ArtifactDescriptor:
     rules_version: str | None = None
     sha256: str = ""
     bytes: int = 0
+    required: bool = True
 
     def __post_init__(self) -> None:
         if not self.name or not self.path or self.schema_version < 1:
@@ -105,21 +106,39 @@ def validate_dependency_graph(manifest: ManifestV3) -> None:
         visit(name)
 
 
-def validate_artifact_files(manifest: ManifestV3, root: str | Path) -> None:
+def validate_artifact_files(manifest: ManifestV3, root: str | Path, *, allow_optional_failures: bool = False) -> dict[str, str]:
     root = Path(root).resolve()
+    failures = {}
     for descriptor in manifest.artifacts:
         artifact = (root / descriptor.path).resolve()
         try:
             artifact.relative_to(root)
         except ValueError as exc:
             raise ValueError(f"Artifact escapes bundle root: {descriptor.path}") from exc
-        if not artifact.is_file():
-            raise FileNotFoundError(artifact)
-        digest, size = file_digest(artifact)
-        if descriptor.sha256 and descriptor.sha256 != digest:
-            raise RuntimeError(f"Artifact {descriptor.name} failed hash validation")
-        if descriptor.bytes and descriptor.bytes != size:
-            raise RuntimeError(f"Artifact {descriptor.name} failed size validation")
+        try:
+            if not artifact.is_file():
+                raise FileNotFoundError(artifact)
+            digest, size = file_digest(artifact)
+            if descriptor.sha256 and descriptor.sha256 != digest:
+                raise RuntimeError(f"Artifact {descriptor.name} failed hash validation")
+            if descriptor.bytes and descriptor.bytes != size:
+                raise RuntimeError(f"Artifact {descriptor.name} failed size validation")
+        except (OSError, RuntimeError) as exc:
+            if not allow_optional_failures or descriptor.required:
+                raise
+            failures[descriptor.name] = str(exc)
+    # A dependent artifact cannot be served after one of its dependencies fails.
+    while True:
+        added = False
+        for descriptor in manifest.artifacts:
+            missing = set(descriptor.dependencies).intersection(failures)
+            if missing and descriptor.name not in failures:
+                if descriptor.required:
+                    raise RuntimeError(f"Required artifact {descriptor.name} depends on unavailable {sorted(missing)}")
+                failures[descriptor.name] = f"Unavailable dependencies: {sorted(missing)}"
+                added = True
+        if not added:
+            return failures
 
 
 def _parse_utc(value: str, field: str) -> datetime:
@@ -298,6 +317,7 @@ def descriptor_for_file(
     fresh_until: str | None = None,
     model_id: str | None = None,
     rules_version: str | None = None,
+    required: bool = True,
 ) -> ArtifactDescriptor:
     artifact = Path(root) / path
     digest, size = file_digest(artifact)
@@ -332,4 +352,5 @@ def descriptor_for_file(
         rules_version=rules_version,
         sha256=digest,
         bytes=size,
+        required=required,
     )

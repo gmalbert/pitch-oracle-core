@@ -49,6 +49,7 @@ _EREDIVISIE_TEAM_ALIASES = {
     "NEC Nijmegen": "Nijmegen",
     "PEC Zwolle": "Zwolle",
     "SC Cambuur": "Cambuur",
+    "SC Heerenveen": "Heerenveen",
 }
 _EREDIVISIE_STADIUMS = {
     # Current and recent Eredivisie clubs. Historical aliases are included so
@@ -89,6 +90,9 @@ _TURKEY_TEAM_ALIASES = {
     "Gaziantep FK": "Gaziantep",
     "Goztepe": "Goztep",
     "Istanbul Basaksehir": "Buyuksehyr",
+    "Başakşehir": "Buyuksehyr", "Kasımpaşa": "Kasimpasa",
+    "Amed Sportif": "Amedspor", "Erzurumspor FK": "Erzurumspor",
+    "Çorum FK": "Corum",
 }
 _BELGIUM_TEAM_ALIASES = {
     "Cercle Brugge KSV": "Cercle Brugge",
@@ -105,6 +109,8 @@ _BELGIUM_TEAM_ALIASES = {
     "Union St.-Gilloise": "St. Gilloise",
     "Waasland-Beveren": "Beveren",
     "Zulte-Waregem": "Waregem",
+    "Royal Antwerp": "Antwerp", "Sporting Charleroi": "Charleroi",
+    "Lommel": "Lommel SK", "SK Beveren": "Beveren",
 }
 _PORTUGAL_TEAM_ALIASES = {
     "Marítimo": "Maritimo",
@@ -195,6 +201,51 @@ _PORTUGAL_STADIUMS = {
 }
 
 BUILTIN_LEAGUES = {
+    "laliga": LeagueConfig(
+        "laliga", "La Liga", "SP1", "esp.1", "ESP_1", 20, (8, 5),
+        country_name="Spain", country_flag="🇪🇸",
+        sources=DataSourceConfig(pitchapi=True, pitchapi_league_id="l_0ErfuF", weather_timezone="Europe/Madrid", api_football_league_id=140),
+        team_aliases={
+            "FC Barcelona": "Barcelona", "Real Madrid CF": "Real Madrid",
+            "Club Atlético de Madrid": "Ath Madrid", "Atlético Madrid": "Ath Madrid",
+            "Atletico Madrid": "Ath Madrid", "Atletico de Madrid": "Ath Madrid",
+            "Atlético de Madrid": "Ath Madrid", "Atl. Madrid": "Ath Madrid",
+            "Athletic Club": "Ath Bilbao", "Athletic Bilbao": "Ath Bilbao", "Bilbao": "Ath Bilbao",
+            "Real Betis Balompié": "Betis", "Real Betis": "Betis", "R. Betis": "Betis",
+            "RC Celta de Vigo": "Celta", "Celta Vigo": "Celta",
+            "RCD Espanyol de Barcelona": "Espanol", "RCD Espanyol": "Espanol", "Espanyol": "Espanol",
+            "Getafe CF": "Getafe", "Girona FC": "Girona", "Levante UD": "Levante",
+            "RCD Mallorca": "Mallorca", "CA Osasuna": "Osasuna", "Sevilla FC": "Sevilla",
+            "Real Sociedad de Fútbol": "Sociedad", "Real Sociedad de Futbol": "Sociedad", "Real Sociedad": "Sociedad", "R. Sociedad": "Sociedad",
+            "Valencia CF": "Valencia", "Rayo Vallecano de Madrid": "Vallecano", "Rayo Vallecano": "Vallecano",
+            "Villarreal CF": "Villarreal", "Deportivo Alavés": "Alaves", "Deportivo Alaves": "Alaves", "Dep. Alaves": "Alaves",
+            "Elche CF": "Elche", "UD Almería": "Almeria", "UD Almeria": "Almeria",
+            "Real Valladolid CF": "Valladolid", "CD Leganés": "Leganes", "CD Leganes": "Leganes", "UD Las Palmas": "Las Palmas", "Real Oviedo": "Oviedo",
+            "Deportivo A Coruña": "La Coruna", "Racing Santander": "Santander",
+        },
+        outcome_labels={"title": (1,), "champions_league": (1, 2, 3, 4), "relegation": (18, 19, 20)},
+    ),
+    "ligue1": LeagueConfig(
+        "ligue1", "Ligue 1", "F1", "fra.1", "FRA_1", 18, (8, 5),
+        country_name="France", country_flag="🇫🇷",
+        sources=DataSourceConfig(pitchapi=True, pitchapi_league_id="l_3FJFUl", weather_timezone="Europe/Paris", api_football_league_id=61),
+        team_aliases={
+            "Paris Saint-Germain FC": "Paris SG", "Paris Saint-Germain": "Paris SG", "PSG": "Paris SG",
+            "Olympique de Marseille": "Marseille", "Olympique Marseille": "Marseille",
+            "Olympique lyonnais": "Lyon", "Olympique Lyonnais": "Lyon", "Lyonnais": "Lyon",
+            "AS Monaco FC": "Monaco", "AS Monaco": "Monaco", "LOSC Lille": "Lille", "Lille OSC": "Lille",
+            "OGC Nice": "Nice", "RC Lens": "Lens", "Stade Rennais FC": "Rennes", "Stade Rennais": "Rennes",
+            "FC Girondins de Bordeaux": "Bordeaux", "Girondins de Bordeaux": "Bordeaux",
+            "Montpellier HSC": "Montpellier", "Stade de Reims": "Reims", "FC Nantes": "Nantes",
+            "Toulouse FC": "Toulouse", "RC Strasbourg Alsace": "Strasbourg", "Strasbourg Alsace": "Strasbourg",
+            "Stade Brestois 29": "Brest", "Stade Brestois": "Brest", "Angers SCO": "Angers",
+            "FC Lorient": "Lorient", "AS Saint-Étienne": "St Etienne", "AS Saint-Etienne": "St Etienne", "Saint-Etienne": "St Etienne",
+            "Le Havre AC": "Le Havre", "Clermont Foot 63": "Clermont", "Clermont Foot": "Clermont",
+            "FC Metz": "Metz", "AJ Auxerre": "Auxerre", "ESTAC de Troyes": "Troyes",
+            "FC Sochaux-Montbéliard": "Sochaux", "Gazélec Ajaccio": "Gazélec",
+        },
+        outcome_labels={"title": (1,), "champions_league": (1, 2, 3), "relegation_playoff": (16,), "relegation": (17, 18)},
+    ),
     "epl": LeagueConfig("epl", "Premier League", "E0", "eng.1", "ENG_1", 20, (8, 5),
                          country_name="England", country_flag="🇬🇧",
                          team_aliases=_EPL_TEAM_ALIASES, stadium_coordinates=_EPL_STADIUMS,

@@ -38,7 +38,8 @@ class PitchAPIXGProvider:
     api_key: str | None = None
 
     def fetch(self, league: LeagueConfig, season: str) -> pd.DataFrame:
-        from ..fetch_pitchapi import PitchAPIClient, pitchapi_league_id
+        from .pitchapi.client import PitchAPIClient
+        from fetch_pitchapi import pitchapi_league_id
 
         league_id = pitchapi_league_id(league)
         key = self.api_key or os.getenv("PITCH_API_KEY")

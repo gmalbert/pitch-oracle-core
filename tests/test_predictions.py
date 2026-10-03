@@ -9,7 +9,26 @@ from pitch_oracle_core.predictions import (
     FeatureContract,
     build_prediction_frame,
     build_upcoming_feature_matrix,
+    production_probabilities,
 )
+
+
+def test_production_state_includes_latest_game_and_canonicalizes_legacy_schedule(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+    historical = pd.DataFrame([
+        {"MatchDate": "2026-09-01", "HomeTeam": "Ajax", "AwayTeam": "PSV", "FullTimeHomeGoals": 1, "FullTimeAwayGoals": 0, "FullTimeResult": "H", "HomeGoalsAve": 0, "AwayGoalsAve": 0},
+        {"MatchDate": "2026-09-02", "HomeTeam": "PSV", "AwayTeam": "Ajax", "FullTimeHomeGoals": 2, "FullTimeAwayGoals": 5, "FullTimeResult": "A", "HomeGoalsAve": 0, "AwayGoalsAve": 1},
+    ])
+    upcoming = pd.DataFrame([{"Date": "2026-10-03", "HomeTeam": "Ajax", "AwayTeam": "PSV"}])
+    contract = FeatureContract(FEATURE_POLICY_VERSION, ("HomeGoalsAve", "AwayGoalsAve"), {"HomeGoalsAve": 0, "AwayGoalsAve": 0})
+    (tmp_path / "ensemble_model.pkl").write_bytes(b"test")
+    model = Mock()
+    model.predict_proba.return_value = np.array([[.5, .3, .2]])
+    monkeypatch.setattr(pickle, "load", lambda stream: model)
+    production_probabilities(historical, upcoming, contract, production_candidate="no_odds", models_dir=tmp_path, league_key="eredivisie", data_dir=tmp_path, as_of=pd.Timestamp("2026-09-04T12:00:00Z"))
+    np.testing.assert_allclose(model.predict_proba.call_args.args[0], [[3, 1]])
+    assert upcoming.fixture_id.notna().all()
+    assert pd.Timestamp(upcoming.iloc[0].kickoff_utc).tzinfo is not None
 
 
 def _contract():

@@ -1,0 +1,83 @@
+name: Shared hourly PitchAPI capture
+
+on:
+  workflow_call:
+    inputs:
+      core_ref:
+        required: true
+        type: string
+      league_key:
+        required: true
+        type: string
+      install_command:
+        default: "python -m pip install -r requirements-ci.txt"
+        type: string
+      fixture_command:
+        default: "python -m fetch_upcoming_fixtures"
+        type: string
+      historical_file:
+        default: "combined_historical_data_with_calculations_new.csv"
+        type: string
+      prediction_command:
+        default: "python scripts/precompute_predictions.py"
+        type: string
+      manifest_command:
+        default: "python -m build_cache_manifest"
+        type: string
+    secrets:
+      PITCH_API_KEY:
+        required: false
+      FD_API_KEY:
+        required: false
+      FOOTBALL_DATA_KEY:
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PITCH_ORACLE_LEAGUE: ${{ inputs.league_key }}
+      PITCH_API_KEY: ${{ secrets.PITCH_API_KEY }}
+      FD_API_KEY: ${{ secrets.FD_API_KEY }}
+      FOOTBALL_DATA_KEY: ${{ secrets.FOOTBALL_DATA_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install pinned runtime
+        shell: bash
+        run: |
+          ${{ inputs.install_command }}
+          python -m pip install "pitch-oracle-core[pipeline,runtime] @ git+https://github.com/gmalbert/pitch-oracle-core.git@${{ inputs.core_ref }}"
+          python -m pip check
+      - name: Refresh the primary fixture schedule
+        shell: bash
+        run: ${{ inputs.fixture_command }}
+      - name: Capture lineups and actual forecasts
+        shell: bash
+        run: |
+          if [ ! -f models/pitchapi_baseline.pkl ]; then
+            echo "Run the daily artifact pipeline once to fit the independent baseline before hourly capture."
+            exit 1
+          fi
+          python -m pitch_oracle_core.pitchapi.pipeline hourly --league "${{ inputs.league_key }}" --historical-file "${{ inputs.historical_file }}"
+      - name: Regenerate forecast cache with the existing fitted models
+        shell: bash
+        run: ${{ inputs.prediction_command }}
+      - name: Validate the refreshed runtime cache
+        shell: bash
+        run: ${{ inputs.manifest_command }}
+      - name: Persist observation and forecast revisions
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data_files precomputed
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "chore: capture hourly lineup and forecast revisions" -m $'## Observations\nRetain the refreshed primary schedule, actual provider captures, independent team lineup status, immutable forecast issues and capability audit.\n\n## Forecast lifecycle\nClosing projections reference an actual pre-kickoff issue. The hourly job does not retrain models or promote feature families.'
+          git push
