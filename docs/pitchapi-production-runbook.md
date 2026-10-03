@@ -153,5 +153,6 @@ Markdown prose and fails Python compilation. It is documentation rather than
 an imported application module and was left unchanged. Six shared-core CI jobs
 passed on Linux, Windows and macOS with Python 3.12/3.13; all seven consumer PR
 CI checks passed after reconciling main. Review and CI links are in the
-[rollout review record](pitchapi-rollout-prs.md). GitHub secret setup remains
-pending explicit user approval.
+[rollout review record](pitchapi-rollout-prs.md). GitHub Actions secret setup was
+completed and verified in all seven consumer repositories on October 3 after
+explicit user approval. Daily/hourly workflows can use it once the rollout is merged.

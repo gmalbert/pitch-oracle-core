@@ -48,7 +48,7 @@ documents. Unchecked work remains part of the requested implementation.
 - [x] Real-provider pilot mapping/coverage and walk-forward evidence where credentials permit.
 - [x] Narrow commits with detailed Markdown descriptions; branches pushed and draft PRs attached.
 - [x] All seven consumer post-push CI checks passed after reconciling main.
-- [ ] Protected GitHub Actions PitchAPI secret configured in each consumer (approval requested).
+- [x] Protected GitHub Actions PitchAPI secret configured in all seven consumers and verified on October 3 after explicit user approval.
 
 ## Current evidence
 
@@ -91,5 +91,6 @@ All eight draft reviews and automated validation links are in the
 [rollout review record](pitchapi-rollout-prs.md). Consumer merge conflicts were
 resolved against current main; upstream source fixes were retained. Exact staged
 artifact hashes were verified after disabling checkout newline normalization for
-generated data/model/cache paths. Protected secret configuration is the remaining
-activation step awaiting user approval.
+generated data/model/cache paths. Protected secret configuration was completed
+and verified in all seven repositories on October 3 after explicit user approval.
+The daily/hourly integrations can use it once the rollout PRs are merged.

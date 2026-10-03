@@ -34,11 +34,15 @@ independently fitted baseline and existing production selections remain the
 serving fallback. Live hourly pilots had no eligible fixtures and created no
 artificial issues. Future real captures support strict replay and promotion.
 
-`PITCH_API_KEY` is not yet configured in the seven consumer GitHub repositories.
-Automatic approval review rejected transferring the local credential because
-explicit authorization for those destinations was missing. The user approval
-question remains pending. Provider collection activates after that approval and
-secret configuration; baseline workflows continue without the optional key.
+On October 3, the user explicitly authorized configuring `PITCH_API_KEY` in all
+seven consumer repositories. The existing local key was stored as a repository
+GitHub Actions secret and its presence was verified in each repository between
+11:20:35 and 11:20:39 UTC. The credential was supplied through standard input and
+was not placed in committed files, command arguments or PR descriptions.
+
+The daily/hourly integrations can use the configured secret once these draft
+rollout PRs are merged. This approval covered secret configuration; the PRs remain
+drafts. Enhanced-family promotion still requires the agreed per-league evidence.
 
 Operational commands, release gates and rollback are in the
 [production runbook](pitchapi-production-runbook.md). Original planning files
