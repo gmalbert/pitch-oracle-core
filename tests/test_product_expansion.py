@@ -1186,3 +1186,72 @@ def test_fixture_ingestion_does_not_amplify_rate_limit_failures(
         )
 
     assert len(calls) == 1
+
+
+def test_fixture_ingestion_splits_gateway_failure_into_shorter_ranges(
+    tmp_path, monkeypatch
+):
+    import fetch_upcoming_fixtures as fixture_fetcher
+
+    class Response:
+        def __init__(self, status_code, events=()):
+            self.status_code = status_code
+            self.events = events
+
+        def raise_for_status(self):
+            if self.status_code != 200:
+                raise fixture_fetcher.requests.HTTPError(response=self)
+
+        def json(self):
+            return {"events": self.events}
+
+    requested = []
+
+    def get(url, **kwargs):
+        dates = kwargs["params"]["dates"]
+        requested.append(dates)
+        if dates == "20261109-20261112":
+            return Response(502)
+        return Response(200, [{"range": dates}])
+
+    monkeypatch.setattr(fixture_fetcher.requests, "get", get)
+    monkeypatch.setattr(fixture_fetcher, "sleep", lambda _: None)
+    now = fixture_fetcher.datetime(2026, 11, 9, tzinfo=fixture_fetcher.timezone.utc)
+    events = fixture_fetcher._scoreboard_events(
+        fixture_fetcher.get_league_config("scotland"), now, 3, 0.5
+    )
+
+    assert events == [
+        {"range": "20261109-20261110"},
+        {"range": "20261111-20261112"},
+    ]
+    assert requested == [
+        "20261109-20261112", "20261109-20261110", "20261111-20261112"
+    ]
+
+
+def test_fixture_ingestion_stops_after_first_unavailable_day(tmp_path, monkeypatch):
+    import fetch_upcoming_fixtures as fixture_fetcher
+
+    class Response:
+        status_code = 502
+
+        def raise_for_status(self):
+            raise fixture_fetcher.requests.HTTPError(response=self)
+
+    calls = []
+
+    def get(url, **kwargs):
+        calls.append(kwargs["params"]["dates"])
+        return Response()
+
+    monkeypatch.setattr(fixture_fetcher.requests, "get", get)
+    monkeypatch.setattr(fixture_fetcher, "sleep", lambda _: None)
+    with pytest.raises(fixture_fetcher.requests.HTTPError):
+        fixture_fetcher.fetch_upcoming_fixtures(
+            "scotland", days_ahead=60, output_dir=tmp_path,
+            fallback_delay_seconds=0,
+        )
+
+    assert len(calls) == 6
+    assert calls[-1] == calls[-1].split("-")[0]
