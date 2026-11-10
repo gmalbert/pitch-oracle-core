@@ -196,7 +196,7 @@ def test_entity_resolution_covers_reviewed_belgium_aliases():
         "KVC Westerlo": "westerlo",
         "Lommel SK": "lommel",
         "OH Leuven": "oh-leuven",
-        "RAAL La Louvi�re": "raal-la-louviere",
+        "RAAL La Louvière": "raal-la-louviere",
         "Racing Genk": "genk",
         "Royal Charleroi SC": "charleroi",
         "Sint-Truidense": "st-truiden",
@@ -995,12 +995,12 @@ def test_evidence_text_and_share_card_are_deterministic_and_accessible():
         "leader_stability": .8,
     })
     card = _share_card(fixture, forecast, {
-        "most_likely_score": "1�0", "p_over_2_5": .48, "p_btts_yes": .44,
+        "most_likely_score": "1–0", "p_over_2_5": .48, "p_btts_yes": .44,
     })
     assert '<html lang="en">' in card
     assert 'name="viewport"' in card
     assert "responsible, informational use" in card
-    assert "Home 80% 42%�58%" in card
+    assert "Home 80% 42%–58%" in card
 
 
 def test_fixture_difficulty_rejects_post_kickoff_ratings():
@@ -1059,7 +1059,7 @@ def test_explicit_preparation_pipeline_uses_full_team_sequence_and_edition(tmp_p
     result = prepare_historical_features(
         league_key="belgium", source=source, destination=destination
     )
-    second = result.loc[pd.to_datetime(result.kickoff_utc, utc=True).dt.strftime("%Y-%m-%d") == "2026-08-08"].iloc[0]
+    second = result.loc[result.fixture_id.str.contains("20260808")].iloc[0]
     assert second.HomeTeamPointsLast5 == pytest.approx(3.0)
     assert second.HomeRestDays == pytest.approx(7.0)
     assert set(result.Season) == {"2026-27"}
@@ -1186,7 +1186,6 @@ def test_fixture_ingestion_does_not_amplify_rate_limit_failures(
         )
 
     assert len(calls) == 1
-
 
 def test_fixture_ingestion_splits_gateway_failure_into_shorter_ranges(
     tmp_path, monkeypatch
