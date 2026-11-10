@@ -33,15 +33,27 @@ def _scoreboard_events(
         "https://site.api.espn.com/apis/site/v2/sports/soccer/"
         f"{config.espn_slug}/scoreboard"
     )
-    date_range = fixture_dates[0]
-    if len(fixture_dates) > 1:
-        date_range = f"{fixture_dates[0]}-{fixture_dates[-1]}"
-    try:
+    def request_range(dates: list[str]) -> list[dict]:
+        date_range = dates[0] if len(dates) == 1 else f"{dates[0]}-{dates[-1]}"
         response = requests.get(
             base_url, params={"limit": 1000, "dates": date_range}, timeout=15
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            # ESPN can return a gateway error for a long range even when
+            # shorter ranges are available. Stop at the first failing day.
+            if getattr(exc.response, "status_code", None) not in {502, 503, 504} or len(dates) == 1:
+                raise
+            midpoint = len(dates) // 2
+            first = request_range(dates[:midpoint])
+            if fallback_delay_seconds:
+                sleep(fallback_delay_seconds)
+            return first + request_range(dates[midpoint:])
         return response.json().get("events", [])
+
+    try:
+        return request_range(fixture_dates)
     except requests.HTTPError as exc:
         if getattr(exc.response, "status_code", None) != 400 or len(fixture_dates) == 1:
             raise
