@@ -33,6 +33,7 @@ def _scoreboard_events(
         "https://site.api.espn.com/apis/site/v2/sports/soccer/"
         f"{config.espn_slug}/scoreboard"
     )
+
     def request_range(dates: list[str]) -> list[dict]:
         date_range = dates[0] if len(dates) == 1 else f"{dates[0]}-{dates[-1]}"
         response = requests.get(
