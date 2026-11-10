@@ -1187,6 +1187,7 @@ def test_fixture_ingestion_does_not_amplify_rate_limit_failures(
 
     assert len(calls) == 1
 
+
 def test_fixture_ingestion_splits_gateway_failure_into_shorter_ranges(
     tmp_path, monkeypatch
 ):
