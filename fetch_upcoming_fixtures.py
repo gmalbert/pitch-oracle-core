@@ -24,6 +24,17 @@ def _scoreboard_dates(now: datetime, days_ahead: int) -> list[str]:
     ]
 
 
+def _request_scoreboard(url: str, params: dict[str, str | int]) -> requests.Response:
+    # Retry transport failures on the same dates before giving up. Keep HTTP
+    # responses in the existing range fallback and rate-limit handling.
+    for delay in (1, 2):
+        try:
+            return requests.get(url, params=params, timeout=15)
+        except (requests.ConnectionError, requests.Timeout):
+            sleep(delay)
+    return requests.get(url, params=params, timeout=15)
+
+
 def _scoreboard_events(
     config: LeagueConfig, now: datetime, days_ahead: int,
     fallback_delay_seconds: float,
@@ -36,9 +47,7 @@ def _scoreboard_events(
 
     def request_range(dates: list[str]) -> list[dict]:
         date_range = dates[0] if len(dates) == 1 else f"{dates[0]}-{dates[-1]}"
-        response = requests.get(
-            base_url, params={"limit": 1000, "dates": date_range}, timeout=15
-        )
+        response = _request_scoreboard(base_url, {"limit": 1000, "dates": date_range})
         try:
             response.raise_for_status()
         except requests.HTTPError as exc:
@@ -62,9 +71,7 @@ def _scoreboard_events(
     for offset, fixture_date in enumerate(fixture_dates):
         if offset and fallback_delay_seconds:
             sleep(fallback_delay_seconds)
-        response = requests.get(
-            base_url, params={"dates": fixture_date}, timeout=15
-        )
+        response = _request_scoreboard(base_url, {"dates": fixture_date})
         response.raise_for_status()
         events.extend(response.json().get("events", []))
     return events
