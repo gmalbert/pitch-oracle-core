@@ -130,7 +130,7 @@ def test_match_center_fixture_selection_and_optional_empty_states(tmp_path, monk
     app = AppTest.from_file(entrypoint, default_timeout=30).run()
     assert not app.exception
     assert app.selectbox[0].value.startswith("Home Club vs Away Club")
-    assert app.query_params["fixture"] == ["fx:test"]
+    assert app.query_params["fixture"] == "fx:test"
     assert [item.value for item in app.title] == ["Home Club vs Away Club"]
     assert "Scoreline probabilities" in [item.value for item in app.subheader]
     assert "Goal outlook" in [item.value for item in app.subheader]
